@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: localhost:3306
--- Generation Time: Oct 01, 2025 at 06:46 AM
+-- Generation Time: Oct 01, 2025 at 08:43 AM
 -- Server version: 8.4.3
 -- PHP Version: 8.3.16
 
@@ -55,7 +55,12 @@ CREATE TABLE `transactions` (
 
 INSERT INTO `transactions` (`id`, `user_id`, `amount`, `description`, `category`, `created_at`) VALUES
 (1, '120363403887776595@g.us', 10000, '-', NULL, '2025-09-30 08:56:30'),
-(2, '120363403887776595@g.us', 2000, 'gaji', 'salary', '2025-09-30 08:57:12');
+(2, '120363403887776595@g.us', 2000, 'gaji', 'salary', '2025-09-30 08:57:12'),
+(3, '628111222333@s.whatsapp.net', 1000000, 'Gaji', 'income', '2025-10-01 07:22:26'),
+(4, '628111222333@s.whatsapp.net', -50000, 'Makan siang', 'food', '2025-10-01 07:22:26'),
+(5, '628111222333@s.whatsapp.net', -120000, 'Transport', 'transport', '2025-10-01 07:22:26'),
+(6, '120363403887776595@g.us', 500000, 'Iuran bersama', 'income', '2025-10-01 07:22:26'),
+(7, '120363403887776595@g.us', -75000, 'Konsumsi acara', 'food', '2025-10-01 07:22:26');
 
 --
 -- Indexes for dumped tables
@@ -92,7 +97,7 @@ ALTER TABLE `settings`
 -- AUTO_INCREMENT for table `transactions`
 --
 ALTER TABLE `transactions`
-  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+  MODIFY `id` bigint UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

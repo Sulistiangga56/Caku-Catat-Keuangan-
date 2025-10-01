@@ -61,3 +61,32 @@ edit 12 -70000 Makan malam [food]
 ```
 help
 ```
+
+
+### DEPLOY
+9) Deploy / production (singkat)
+
+Build frontend: di folder dashboard/ jalankan npm run build → menghasilkan dashboard/dist.
+
+Set environment var NODE_ENV=production lalu jalankan node api.js (atau pm2 start api.js --name caku-api --env production).
+
+Jalankan bot dengan PM2: pm2 start index.js --name caku-bot.
+
+Pastikan port 5000 terbuka dan reverse proxy (Nginx) jika perlu.
+
+Contoh PM2:
+
+npm install -g pm2
+pm2 start index.js --name caku-bot
+pm2 start api.js --name caku-api --env production
+pm2 save
+
+10) Troubleshooting umum (cek kalau ada masalah)
+
+API 500 error → cek console, biasanya koneksi DB gagal. Pastikan MySQL jalan & db.js kredensial benar.
+
+CORS issue → pastikan app.use(cors()) aktif di api.js.
+
+Frontend tidak mau fetch → periksa API URL di App.jsx (use VITE_API_URL atau default http://localhost:5000).
+
+Jika getTransactions error tentang LIMIT ? → pastikan kamu tidak memanggil getTransactions tanpa userId (API mewajibkan userId di URL).
