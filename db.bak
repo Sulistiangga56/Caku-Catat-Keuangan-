@@ -1,0 +1,142 @@
+// db.js
+const mysql = require('mysql2/promise');
+
+const pool = mysql.createPool({
+  host: 'localhost',
+  user: 'root',      // sesuaikan
+  password: '',      // sesuaikan
+  database: 'caku',
+  port: 3306,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
+
+// TRANSACTIONS
+async function addTransaction(userId, amount, description, category = null) {
+  const [res] = await pool.execute(
+    `INSERT INTO transactions (user_id, amount, description, category) VALUES (?, ?, ?, ?)`,
+    [userId, amount, description, category]
+  );
+  return res.insertId;
+}
+
+async function editTransaction(id, userId, amount, description, category = null) {
+  const [res] = await pool.execute(
+    `UPDATE transactions SET amount = ?, description = ?, category = ? WHERE id = ? AND user_id = ?`,
+    [amount, description, category, id, userId]
+  );
+  return res.affectedRows;
+}
+
+async function deleteTransaction(id, userId) {
+  const [res] = await pool.execute(
+    `DELETE FROM transactions WHERE id = ? AND user_id = ?`,
+    [id, userId]
+  );
+  return res.affectedRows;
+}
+
+// Get last N or filtered transactions
+async function getTransactions(userId, opts = {}) {
+  let { limit = 50, month = null, category = null, since = null, until = null } = opts;
+  let query = `SELECT * FROM transactions WHERE user_id = ?`;
+  const params = [userId];
+
+  if (month) {
+    // month format 'MM-YYYY'
+    query += ` AND DATE_FORMAT(created_at, '%m-%Y') = ?`;
+    params.push(month);
+  }
+  if (category) {
+    query += ` AND category = ?`;
+    params.push(category);
+  }
+  if (since) {
+    query += ` AND created_at >= ?`;
+    params.push(since);
+  }
+  if (until) {
+    query += ` AND created_at <= ?`;
+    params.push(until);
+  }
+
+  query += ` ORDER BY created_at DESC LIMIT ?`;
+  params.push(limit);
+
+  const [rows] = await pool.execute(query, params);
+  return rows;
+}
+
+async function getSummary(userId, month = null) {
+  // total saldo (all transactions or month)
+  let saldoQuery = `SELECT SUM(amount) as saldo FROM transactions WHERE user_id = ?`;
+  const params = [userId];
+  if (month) {
+    saldoQuery += ` AND DATE_FORMAT(created_at, '%m-%Y') = ?`;
+    params.push(month);
+  }
+  const [r] = await pool.execute(saldoQuery, params);
+  const saldo = r[0].saldo || 0;
+
+  const rows = await getTransactions(userId, { limit: 100, month });
+
+  return { saldo, rows };
+}
+
+// Category summary (for chart & alerts)
+async function getCategorySummary(userId, month = null) {
+  let query = `SELECT category, SUM(amount) as total, SUM(CASE WHEN amount<0 THEN amount ELSE 0 END) as total_negative FROM transactions WHERE user_id = ?`;
+  const params = [userId];
+  if (month) {
+    query += ` AND DATE_FORMAT(created_at, '%m-%Y') = ?`;
+    params.push(month);
+  }
+  query += ` GROUP BY category ORDER BY ABS(SUM(amount)) DESC`;
+  const [rows] = await pool.execute(query, params);
+  return rows;
+}
+
+// SETTINGS
+async function setTarget(userId, target) {
+  // upsert
+  const [res] = await pool.execute(
+    `INSERT INTO settings (user_id, target) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE target = ?`,
+    [userId, target, target]
+  );
+  return res;
+}
+
+async function setReminder(userId, timeStr) {
+  const [res] = await pool.execute(
+    `INSERT INTO settings (user_id, reminder_time) VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE reminder_time = ?`,
+    [userId, timeStr, timeStr]
+  );
+  return res;
+}
+
+async function getSettings(userId) {
+  const [rows] = await pool.execute(`SELECT * FROM settings WHERE user_id = ?`, [userId]);
+  return rows[0] || null;
+}
+
+async function getAllUsersWithReminder() {
+  const [rows] = await pool.execute(`SELECT user_id, reminder_time FROM settings WHERE reminder_time IS NOT NULL`);
+  return rows;
+}
+
+module.exports = {
+  addTransaction,
+  editTransaction,
+  deleteTransaction,
+  getTransactions,
+  getSummary,
+  getCategorySummary,
+  setTarget,
+  setReminder,
+  getSettings,
+  getAllUsersWithReminder,
+  pool
+};
