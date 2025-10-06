@@ -168,13 +168,36 @@ async function setTarget(userId, target) {
   return res;
 }
 
-async function setReminder(userId, timeStr) {
-  const [res] = await pool.execute(
-    `INSERT INTO settings (user_id, reminder_time) VALUES (?, ?)
-     ON DUPLICATE KEY UPDATE reminder_time = ?`,
-    [userId, timeStr, timeStr]
-  );
-  return res;
+// async function setReminder(userId, timeStr) {
+//   const [res] = await pool.execute(
+//     `INSERT INTO settings (user_id, reminder_time) VALUES (?, ?)
+//      ON DUPLICATE KEY UPDATE reminder_time = ?`,
+//     [userId, timeStr, timeStr]
+//   );
+//   return res;
+// }
+
+// setReminder(userId, time, msg)
+async function setReminder(userId, time, msg = null) {
+  const conn = await pool.getConnection();
+  try {
+    const sql = `
+      INSERT INTO settings (user_id, reminder_time, reminder_msg)
+      VALUES (?, ?, ?)
+      ON DUPLICATE KEY UPDATE reminder_time = VALUES(reminder_time), reminder_msg = VALUES(reminder_msg)
+    `;
+    await conn.execute(sql, [userId, time, msg || '⏰ Reminder catat keuangan hari ini!']);
+  } finally {
+    conn.release();
+  }
+}
+
+async function getAllUsersWithReminder() {
+  const [rows] = await pool.execute(`
+    SELECT user_id, reminder_time, reminder_msg FROM settings
+    WHERE reminder_time IS NOT NULL
+  `);
+  return rows;
 }
 
 async function getSettings(userId) {
@@ -182,10 +205,10 @@ async function getSettings(userId) {
   return rows[0] || null;
 }
 
-async function getAllUsersWithReminder() {
-  const [rows] = await pool.execute(`SELECT user_id, reminder_time FROM settings WHERE reminder_time IS NOT NULL`);
-  return rows;
-}
+// async function getAllUsersWithReminder() {
+//   const [rows] = await pool.execute(`SELECT user_id, reminder_time FROM settings WHERE reminder_time IS NOT NULL`);
+//   return rows;
+// }
 
 module.exports = {
   addTransaction,

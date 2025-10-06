@@ -47,7 +47,7 @@ async function generateXlsx(userId, rows, meta = {}) {
   ws.addRow(['Laporan Keuangan']);
   ws.addRow([`User: ${userId}`, `Generated: ${moment().format('YYYY-MM-DD HH:mm')}`]);
   ws.addRow([]);
-  ws.addRow(['ID','Tanggal','Amount','Description','Category']);
+  ws.addRow(['ID', 'Tanggal', 'Amount', 'Description', 'Category']);
   rows.forEach(r => {
     ws.addRow([r.id, moment(r.created_at).format('YYYY-MM-DD HH:mm'), r.amount, r.description, r.category]);
   });
@@ -91,6 +91,15 @@ function quickChartUrl(labels, dataValues, title = 'Pengeluaran per Kategori') {
   return `https://quickchart.io/chart?c=${encoded}&format=png&width=800&height=400`;
 }
 
+// small utils
+function uniqArray(arr) {
+  return Array.from(new Set(arr));
+}
+
+function sum(arr) {
+  return arr.reduce((a, b) => a + (Number(b) || 0), 0);
+}
+
 // COMMANDS
 const commands = {
   help: async (sock, from) => {
@@ -106,23 +115,54 @@ const commands = {
       '- `saldo` : cek saldo saat ini',
       '- `target 10000000` : set target tabungan',
       '- `reminder HH:mm` : set daily reminder (local time)',
+      '- `reminder list` : lihat reminder kamu',
+      '- `reminder off` : matikan reminder',
       '- `hapus <id>` : hapus transaksi',
       '- `edit <id> <amount> <desc> [category]` : edit transaksi',
+      '- `kategori` : lihat daftar kategori',
+      '- `cari <kata>` : cari transaksi',
+      '- `pengeluaran [bulan MM-YYYY]` : total pengeluaran (negatif) bulan ini/param',
+      '- `pemasukan [bulan MM-YYYY]` : total pemasukan (positif)',
+      '- `hari ini` / `minggu ini` : transaksi hari/ minggu ini',
+      '- `tahunan YYYY` : ringkasan per bulan tahun tersebut',
+      '- `ranking kategori [MM-YYYY]` : urut kategori berdasar pengeluaran',
+      '- `stat` : statistik singkat',
+      '- `backup` : kirim file .xlsx backup (terbatas)',
+      '- `reset` : hapus semua transaksi (butuh konfirmasi)',
+      '- `saran` : saran penghematan sederhana',
+      '- `progress` : progres target tabungan',
       '- `help` : show this help'
     ].join('\n');
     await sock.sendMessage(from, { text: helpText });
   },
 
+  // quick keyword search (client side filtering)
+  cari: async (sock, from, args) => {
+    const keyword = args.join(' ').toLowerCase().trim();
+    if (!keyword) return sock.sendMessage(from, { text: 'Format: cari <kata>' });
+
+    // ambil banyak data (limit tinggi)
+    const rows = await getTransactions(from, { limit: 1000 });
+    const found = rows.filter(r => (r.description || '').toLowerCase().includes(keyword));
+    if (!found.length) return sock.sendMessage(from, { text: 'Tidak ditemukan transaksi yang cocok.' });
+
+    let rep = `🔍 Hasil pencarian: "${keyword}"\n\n`;
+    found.slice(0, 50).forEach(r => {
+      rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+    });
+    if (found.length > 50) rep += `\n...dan ${found.length - 50} hasil lainnya.`;
+    await sock.sendMessage(from, { text: rep });
+  },
+
   tambah: async (sock, from, rawText) => {
-    // rawText is full original text
     const { amount, description, category } = parseAmountAndMeta(rawText);
     if (!Number.isFinite(amount)) return await sock.sendMessage(from, { text: 'Format amount tidak valid.' });
     const id = await addTransaction(from, amount, description, category);
-    await sock.sendMessage(from, { text: `✅ Tercatat (ID ${id}): ${formatCurrency(amount)} - ${description} ${category ? '['+category+']' : ''}` });
+    await sock.sendMessage(from, { text: `✅ Tercatat (ID ${id}): ${formatCurrency(amount)} - ${description} ${category ? '[' + category + ']' : ''}` });
   },
 
   laporan: async (sock, from, args) => {
-    // args may be: [], ['bulan','MM-YYYY'], ['export','MM-YYYY'], ['kategori','food']
+    // maintain previous behaviors
     if (args[0] === 'bulan' && args[1]) {
       const month = args[1];
       const { saldo, rows } = await getSummary(from, month);
@@ -148,7 +188,7 @@ const commands = {
       return;
     }
 
-    if (args[0] === 'kategori' && args[1]) {
+    if ((args[0] === 'kategori' || args[0] === 'Kategori') && args[1]) {
       const category = args.slice(1).join(' ');
       const rows = await getTransactions(from, { limit: 200, category });
       let rep = `📊 Laporan Kategori: ${category}\n\n`;
@@ -186,18 +226,234 @@ const commands = {
     await sock.sendMessage(from, { text: `💰 Saldo saat ini: ${formatCurrency(saldo)}` });
   },
 
+  // kategori: list unique categories
+  kategori: async (sock, from) => {
+    const rows = await getTransactions(from, { limit: 1000 });
+    const categories = Array.from(
+      new Set(
+        rows
+          .map(r => (r.category || '').trim())
+          .filter(c => c.length > 0)
+      )
+    );
+    if (!categories.length) {
+      await sock.sendMessage(from, { text: 'Belum ada kategori yang tercatat.' });
+      return;
+    }
+    await sock.sendMessage(from, { text: `📊 Daftar Kategori Tercatat:\n\n${categories.map((c, i) => `${i + 1}. ${c}`).join('\n')}` });
+  },
+
+  // totals by sign
+  pengeluaran: async (sock, from, args) => {
+    const month = args[0] || null; // expect MM-YYYY
+    const rows = await getTransactions(from, { limit: 1000, month });
+    const neg = rows.filter(r => Number(r.amount) < 0).map(r => Number(r.amount));
+    const totalNeg = Math.abs(sum(neg));
+    await sock.sendMessage(from, { text: `📉 Total Pengeluaran ${month ? `bulan ${month}` : ''}: ${formatCurrency(totalNeg)}` });
+  },
+
+  pemasukan: async (sock, from, args) => {
+    const month = args[0] || null;
+    const rows = await getTransactions(from, { limit: 1000, month });
+    const pos = rows.filter(r => Number(r.amount) > 0).map(r => Number(r.amount));
+    const totalPos = sum(pos);
+    await sock.sendMessage(from, { text: `📈 Total Pemasukan ${month ? `bulan ${month}` : ''}: ${formatCurrency(totalPos)}` });
+  },
+
+  // day/week quick
+  'hari': async (sock, from, args) => {
+    // support message "hari ini"
+    if (args[0] === 'ini' || args[0] === undefined) {
+      const start = moment().startOf('day').format('YYYY-MM-DD HH:mm:ss');
+      const end = moment().endOf('day').format('YYYY-MM-DD HH:mm:ss');
+      const rows = await getTransactions(from, { limit: 1000, since: start, until: end });
+      if (!rows.length) return sock.sendMessage(from, { text: 'Tidak ada transaksi hari ini.' });
+      let rep = `📅 Transaksi Hari Ini:\n\n`;
+      rows.forEach(r => {
+        rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('HH:mm')}\n`;
+      });
+      return sock.sendMessage(from, { text: rep });
+    }
+    await sock.sendMessage(from, { text: 'Gunakan: "hari ini"' });
+  },
+
+  'minggu': async (sock, from, args) => {
+    if (args[0] === 'ini' || args[0] === undefined) {
+      const start = moment().startOf('week').format('YYYY-MM-DD HH:mm:ss');
+      const end = moment().endOf('week').format('YYYY-MM-DD HH:mm:ss');
+      const rows = await getTransactions(from, { limit: 1000, since: start, until: end });
+      if (!rows.length) return sock.sendMessage(from, { text: 'Tidak ada transaksi minggu ini.' });
+      let rep = `📅 Transaksi Minggu Ini:\n\n`;
+      rows.forEach(r => {
+        rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('dd DD/MM HH:mm')}\n`;
+      });
+      return sock.sendMessage(from, { text: rep });
+    }
+    await sock.sendMessage(from, { text: 'Gunakan: "minggu ini"' });
+  },
+
+  tahunan: async (sock, from, args) => {
+    const year = args[0] || moment().format('YYYY');
+    // gather per month totals
+    const months = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0') + '-' + year); // MM-YYYY
+    let rep = `📅 Ringkasan Tahun ${year}\n\n`;
+    for (const m of months) {
+      const { rows } = await getSummary(from, m);
+      const total = sum(rows.map(r => Number(r.amount)));
+      rep += `${m}: ${formatCurrency(total)} (${rows.length} transaksi)\n`;
+    }
+    await sock.sendMessage(from, { text: rep });
+  },
+
+  'ranking': async (sock, from, args) => {
+    // usage: ranking kategori MM-YYYY
+    if (args[0] === 'kategori' && args[1]) {
+      const month = args[1];
+      const rows = await getCategorySummary(from, month);
+      if (!rows.length) return sock.sendMessage(from, { text: 'Tidak ada data.' });
+      // sort by total negative (spending) or abs total
+      const ranked = rows.sort((a, b) => Math.abs(b.total) - Math.abs(a.total)).slice(0, 10);
+      let rep = `🏆 Ranking Kategori ${month}:\n\n`;
+      ranked.forEach((r, i) => {
+        rep += `${i + 1}. ${r.category || 'Uncategorized'} — ${formatCurrency(Math.abs(Number(r.total)))}\n`;
+      });
+      return sock.sendMessage(from, { text: rep });
+    }
+    await sock.sendMessage(from, { text: 'Format: ranking kategori MM-YYYY' });
+  },
+
+  stat: async (sock, from) => {
+    const rows = await getTransactions(from, { limit: 1000 });
+    const totalTrans = rows.length;
+    const categories = Array.from(new Set(rows.map(r => (r.category || '').trim()).filter(Boolean)));
+    const totalPengeluaran = sum(rows.filter(r => Number(r.amount) < 0).map(r => Number(r.amount)));
+    const totalPemasukan = sum(rows.filter(r => Number(r.amount) > 0).map(r => Number(r.amount)));
+    const avgPerTrans = totalTrans ? ((totalPemasukan + totalPengeluaran) / totalTrans) : 0;
+    const rep = [
+      `📊 Statistik Singkat`,
+      `Transaksi: ${totalTrans}`,
+      `Kategori aktif: ${categories.length}`,
+      `Total Pemasukan: ${formatCurrency(totalPemasukan)}`,
+      `Total Pengeluaran: ${formatCurrency(Math.abs(totalPengeluaran))}`,
+      `Rata-rata per transaksi: ${formatCurrency(Math.abs(avgPerTrans))}`
+    ].join('\n');
+    await sock.sendMessage(from, { text: rep });
+  },
+
+  // reminder controls
+  reminder: async (sock, from, args) => {
+    const sub = args[0];
+    if (!sub) return sock.sendMessage(from, { text: 'Format: reminder HH:mm | reminder list | reminder off | reminder pesan <text>' });
+
+    if (sub === 'list') {
+      const settings = await getSettings(from);
+      if (!settings || !settings.reminder_time) return sock.sendMessage(from, { text: 'Belum ada reminder diset.' });
+      return sock.sendMessage(from, { text: `Reminder: ${settings.reminder_time}\nPesan: ${settings.reminder_msg || '-'}` });
+    }
+
+    if (sub === 'off') {
+      await setReminder(from, null);
+      return sock.sendMessage(from, { text: 'Reminder dimatikan.' });
+    }
+
+    // index.js (Bagian 'reminder pesan')
+    if (sub === 'pesan') {
+      const text = args.slice(1).join(' ');
+      if (!text) return sock.sendMessage(from, { text: 'Format: reminder pesan <teks>' });
+
+      const settings = await getSettings(from);
+      const time = settings?.reminder_time || null;
+
+      // Jika belum ada waktu, set waktu default tapi simpan pesannya
+      const timeToSet = time || '00:00';
+
+      // 💡 Perbaikan: Kirim pesan baru (text) ke fungsi setReminder
+      await setReminder(from, timeToSet, text);
+
+      return sock.sendMessage(from, {
+        text: `✅ Pesan reminder berhasil diubah menjadi:\n*${text}*.\nReminder aktif pada: ${timeToSet}`
+      });
+    }
+
+    // if (sub === 'pesan') {
+    //   const text = args.slice(1).join(' ');
+    //   if (!text) return sock.sendMessage(from, { text: 'Format: reminder pesan <teks>' });
+    //   // store pesan di settings: we don't have setReminder msg function; use setTarget as quick hack? better: extend db later.
+    //   // For now, we store it in settings.reminder_time as "HH:mm|MESSAGE" conservatively
+    //   const settings = await getSettings(from);
+    //   const time = settings?.reminder_time || null;
+    //   await setReminder(from, time ? time : '00:00'); // ensure row exists
+    //   // hack: store message in settings table is not implemented; ideally add setReminderMessage in db.js
+    //   await sock.sendMessage(from, { text: 'Pesan reminder disimpan (note: pesan disimpan sementara). Fitur lengkap akan ditambah di DB.' });
+    //   return;
+    // }
+
+    // otherwise treat as time
+    const time = sub;
+    if (!/^\d{2}:\d{2}$/.test(time)) return sock.sendMessage(from, { text: 'Format: reminder HH:mm (24h)' });
+
+    // 💡 Tambahan: Ambil settings untuk mempertahankan pesan yang sudah ada
+    const settings = await getSettings(from);
+    const existingMsg = settings?.reminder_msg || null;
+
+    // Gunakan existingMsg, bukan null, agar tidak tertimpa pesan default
+    await setReminder(from, time, existingMsg);
+    await sock.sendMessage(from, { text: `⏰ Reminder harian diset pada ${time}${existingMsg ? `\nPesan: ${existingMsg}` : ''}` });
+    // const time = sub;
+    // if (!/^\d{2}:\d{2}$/.test(time)) return sock.sendMessage(from, { text: 'Format: reminder HH:mm (24h)' });
+    // await setReminder(from, time);
+    // await sock.sendMessage(from, { text: `⏰ Reminder harian diset pada ${time}` });
+  },
+
+  // backup XLSX quick
+  backup: async (sock, from) => {
+    const rows = await getTransactions(from, { limit: 5000 });
+    if (!rows.length) return sock.sendMessage(from, { text: 'Belum ada transaksi untuk di-backup.' });
+    const xlsx = await generateXlsx(from, rows);
+    await sock.sendMessage(from, { document: fs.readFileSync(xlsx), fileName: path.basename(xlsx), mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  },
+
+  // reset (destructive) - require confirm
+  reset: async (sock, from, args) => {
+    const confirm = args[0];
+    if (confirm !== 'iya' && confirm !== 'yes') {
+      return sock.sendMessage(from, { text: 'Konfirmasi reset: ketik `reset iya` untuk menghapus semua transaksi Anda. (PERMANENT)' });
+    }
+    // fetch all ids then delete
+    const rows = await getTransactions(from, { limit: 5000 });
+    for (const r of rows) {
+      try { await deleteTransaction(r.id, from); } catch (e) { /* ignore per-row errors */ }
+    }
+    await sock.sendMessage(from, { text: '✅ Semua transaksi Anda telah dihapus.' });
+  },
+
+  saran: async (sock, from) => {
+    // simple heuristic: find top spending category this month and give 1-2 tips
+    const month = moment().format('MM-YYYY');
+    const cats = await getCategorySummary(from, month);
+    if (!cats.length) return sock.sendMessage(from, { text: 'Belum ada data untuk memberi saran.' });
+    const sorted = cats.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+    const top = sorted[0];
+    let advice = `💡 Saran singkat:\nKategori terbesar bulan ini: ${top.category || 'Uncategorized'} — ${formatCurrency(Math.abs(Number(top.total)))}.\n`;
+    advice += `Coba: 1) Review 3 transaksi terbesar di kategori ini; 2) tetapkan batas mingguan; 3) cari opsi lebih murah untuk item yang sering dibeli.`;
+    await sock.sendMessage(from, { text: advice });
+  },
+
+  progress: async (sock, from) => {
+    const settings = await getSettings(from);
+    if (!settings || !settings.target) return sock.sendMessage(from, { text: 'Belum ada target. Set target dengan: target 10000000' });
+    const target = Number(settings.target);
+    // current saved = total saldo
+    const { saldo } = await getSummary(from, null);
+    const percent = Math.min(100, Math.round((saldo / target) * 100));
+    await sock.sendMessage(from, { text: `🎯 Target: ${formatCurrency(target)}\nTerkumpul: ${formatCurrency(saldo)} (${percent}%)` });
+  },
+
   target: async (sock, from, args) => {
     const target = parseInt(args[0]);
     if (!Number.isFinite(target)) return await sock.sendMessage(from, { text: 'Format: target 10000000' });
     await setTarget(from, target);
     await sock.sendMessage(from, { text: `🎯 Target diset: ${formatCurrency(target)}` });
-  },
-
-  reminder: async (sock, from, args) => {
-    const time = args[0];
-    if (!time || !/^\d{2}:\d{2}$/.test(time)) return await sock.sendMessage(from, { text: 'Format: reminder HH:mm (24h)' });
-    await setReminder(from, time);
-    await sock.sendMessage(from, { text: `⏰ Reminder harian diset pada ${time}` });
   },
 
   hapus: async (sock, from, args) => {
@@ -251,8 +507,10 @@ async function handleMessage(sock, msg) {
       // pass raw to edit handler if needed
       await commands[cmd](sock, from, args, raw);
     } else {
-      // allow 'laporan' without explicit 'laporan' keyword if user writes 'report' or 'help'
+      // aliases
       if (cmd === 'report') await commands.laporan(sock, from, args);
+      else if (cmd === 'hari' && args[0] === 'ini') await commands.hari(sock, from, args);
+      else if (cmd === 'minggu' && args[0] === 'ini') await commands.minggu(sock, from, args);
       else await commands.help(sock, from);
     }
   } catch (err) {
@@ -302,7 +560,7 @@ async function startBot() {
         if (u.reminder_time === now) {
           // send a reminder message and a short daily summary
           const summary = await getSummary(u.user_id, moment().format('MM-YYYY'));
-          const text = `⏰ Reminder catat keuangan\nSaldo bulan ini: ${formatCurrency(summary.saldo)}\nKetik 'laporan bulan ${moment().format('MM-YYYY')}' untuk detail.`;
+          const text = `${u.reminder_msg || '⏰ Reminder catat keuangan hari ini!'}\n\nSaldo bulan ini: ${formatCurrency(summary.saldo)}\nKetik *laporan bulan ${moment().format('MM-YYYY')}* untuk detail.`;
           await sock.sendMessage(u.user_id, { text });
         }
       }
