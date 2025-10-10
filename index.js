@@ -1,4 +1,6 @@
 // index.js
+require("dotenv").config();
+
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const {
   addTransaction, editTransaction, deleteTransaction, getSummary, getTransactions,
@@ -13,9 +15,21 @@ const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
 const cron = require('node-cron');
+const OpenAI = require("openai");
+const openai = new OpenAI({ apiKey: process.env.GROQ_API_KEY,
+    baseURL: "https://api.groq.com/openai/v1", });
 
 const OUT_DIR = path.resolve(__dirname, 'out');
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR);
+
+(async () => {
+  const res = await openai.chat.completions.create({
+    model: "openai/gpt-oss-20b",
+    messages: [{ role: "user", content: "Halo dari Caku bot!" }],
+  });
+  console.log(res.choices[0].message);
+})();
+
 
 // Helpers
 function formatCurrency(n) {
@@ -428,15 +442,44 @@ const commands = {
   },
 
   saran: async (sock, from) => {
-    // simple heuristic: find top spending category this month and give 1-2 tips
-    const month = moment().format('MM-YYYY');
-    const cats = await getCategorySummary(from, month);
-    if (!cats.length) return sock.sendMessage(from, { text: 'Belum ada data untuk memberi saran.' });
-    const sorted = cats.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
-    const top = sorted[0];
-    let advice = `💡 Saran singkat:\nKategori terbesar bulan ini: ${top.category || 'Uncategorized'} — ${formatCurrency(Math.abs(Number(top.total)))}.\n`;
-    advice += `Coba: 1) Review 3 transaksi terbesar di kategori ini; 2) tetapkan batas mingguan; 3) cari opsi lebih murah untuk item yang sering dibeli.`;
-    await sock.sendMessage(from, { text: advice });
+    try {
+      const month = moment().format('MM-YYYY');
+      const cats = await getCategorySummary(from, month);
+
+      if (!cats.length) {
+        await sock.sendMessage(from, { text: 'Belum ada data bulan ini untuk memberi saran.' });
+        return;
+      }
+
+      // Urutkan kategori dari pengeluaran terbesar
+      const sorted = cats.sort((a, b) => Math.abs(b.total) - Math.abs(a.total));
+      const summaryText = sorted.map(c =>
+        `${c.category || 'Tanpa Kategori'}: ${formatCurrency(Math.abs(Number(c.total)))}`
+      ).join('\n');
+
+      // Buat prompt untuk ChatGPT
+      const prompt = `
+      Kamu adalah asisten keuangan pribadi yang ramah dan cerdas.
+      Berikut ringkasan pengeluaran bulan ${month}:
+      ${summaryText}
+
+      Buatkan analisis singkat dan 2–3 saran praktis yang membantu user mengatur pengeluaran bulan depan.
+      Gunakan gaya santai tapi tetap profesional, maksimal 5 kalimat.
+      `;
+
+      // Kirim ke ChatGPT
+      const response = await openai.chat.completions.create({
+        model: "openai/gpt-oss-20b", // ringan tapi cerdas
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.8,
+      });
+
+      const advice = response.choices[0].message.content;
+      await sock.sendMessage(from, { text: `💡 *Saran Keuangan AI (${month})*\n\n${advice}` });
+    } catch (err) {
+      console.error('Error di command saran:', err);
+      await sock.sendMessage(from, { text: '⚠️ Gagal mendapatkan saran. Coba lagi nanti.' });
+    }
   },
 
   progress: async (sock, from) => {

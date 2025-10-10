@@ -1,3 +1,5 @@
 auth
 node_modules
 out
+database
+.env
