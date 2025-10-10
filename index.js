@@ -16,8 +16,10 @@ const path = require('path');
 const axios = require('axios');
 const cron = require('node-cron');
 const OpenAI = require("openai");
-const openai = new OpenAI({ apiKey: process.env.GROQ_API_KEY,
-    baseURL: "https://api.groq.com/openai/v1", });
+const openai = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
+});
 
 const OUT_DIR = path.resolve(__dirname, 'out');
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR);
@@ -145,6 +147,7 @@ const commands = {
       '- `reset` : hapus semua transaksi (butuh konfirmasi)',
       '- `saran` : saran penghematan sederhana',
       '- `progress` : progres target tabungan',
+      '- `split` : bagi transaksi patungan (lihat dokumentasi)',
       '- `help` : show this help'
     ].join('\n');
     await sock.sendMessage(from, { text: helpText });
@@ -166,6 +169,46 @@ const commands = {
     });
     if (found.length > 50) rep += `\n...dan ${found.length - 50} hasil lainnya.`;
     await sock.sendMessage(from, { text: rep });
+  },
+
+  split: async (sock, from, rawText) => {
+    // pastikan string
+    if (Array.isArray(rawText)) rawText = rawText.join(' ');
+    if (typeof rawText !== 'string') {
+      rawText = rawText?.conversation || rawText?.text || String(rawText);
+    }
+
+    console.log('[DEBUG split input]', rawText);
+
+    const regex = /bayar\s+(\d+)\s+(.*?)\s*-\s*bareng\s+(@[\d\s,@]+)(?:\s+via\s+([\w\s]+))?/i;
+    const match = rawText.match(regex);
+    if (!match) {
+      return sock.sendMessage(from, { text: '⚠️ Format salah.\n\n📘 Contoh benar:\nBayar 150000 makan - bareng @62812345, @62898765 via Dana' });
+    }
+
+    const total = parseInt(match[1]);
+    const description = match[2].trim();
+    const peopleText = match[3].trim();
+    const method = (match[4] || 'Transfer').trim();
+
+    const numbers = peopleText.split(/[, ]+/).map(n => n.replace('@', '').trim()).filter(Boolean);
+    const everyone = [from, ...numbers];
+    const perPerson = Math.round(total / everyone.length);
+
+    for (const num of numbers) {
+      const jid = num.includes('@s.whatsapp.net') ? num : `${num}@s.whatsapp.net`;
+      const prettyMethod = method.charAt(0).toUpperCase() + method.slice(1).toLowerCase();
+      await sock.sendMessage(jid, {
+        text: `💸 *Patungan Otomatis*\n@${from.split('@')[0]} telah membayar *Rp${perPerson.toLocaleString()}* untuk *${description}* melalui *${prettyMethod}*.\n\nSilakan konfirmasi bila sudah diterima.`,
+        mentions: [from]
+      });
+    }
+
+    await sock.sendMessage(from, {
+      text: `✅ Transaksi dibagi rata ke ${numbers.length} orang.\nMasing-masing: Rp${perPerson.toLocaleString()} (${method}).`
+    });
+
+    await addTransaction(from, -total, `${description} (Patungan)`, 'Patungan');
   },
 
   tambah: async (sock, from, rawText) => {
@@ -554,6 +597,7 @@ async function handleMessage(sock, msg) {
       if (cmd === 'report') await commands.laporan(sock, from, args);
       else if (cmd === 'hari' && args[0] === 'ini') await commands.hari(sock, from, args);
       else if (cmd === 'minggu' && args[0] === 'ini') await commands.minggu(sock, from, args);
+      else if (cmd === 'bayar') await commands.split(sock, from, raw);
       else await commands.help(sock, from);
     }
   } catch (err) {
