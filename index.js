@@ -1,5 +1,6 @@
 // index.js
 require("dotenv").config();
+const { runOsint } = require('./osint');
 
 const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const {
@@ -7,6 +8,14 @@ const {
   getCategorySummary, setTarget, setReminder, getSettings, getAllUsersWithReminder
 } = require('./db');
 
+const {
+  verifyToken,
+  isAuthorized,
+  generateToken,
+  listUsers,
+  deactivateUser
+} = require('./auth');
+const ADMIN_JID = '6281380036932@s.whatsapp.net';
 const moment = require('moment');
 const qrcode = require('qrcode-terminal');
 const ExcelJS = require('exceljs');
@@ -121,6 +130,7 @@ const commands = {
   help: async (sock, from) => {
     const helpText = [
       '📌 *Perintah Bot Keuangan*',
+      '- `menu` : tampilkan menu',
       '- `+100000 Gaji [salary]` : tambah pemasukan',
       '- `-50000 Makan [food]` : tambah pengeluaran (category optional in [] )',
       '- `laporan` : laporan singkat',
@@ -208,7 +218,7 @@ const commands = {
       text: `✅ Transaksi dibagi rata ke ${numbers.length} orang.\nMasing-masing: Rp${perPerson.toLocaleString()} (${method}).`
     });
 
-    await addTransaction(from, -total, `${description} (Patungan)`, 'Patungan');
+    await addTransaction(from, -perPerson, `${description} (Patungan)`, 'Patungan');
   },
 
   tambah: async (sock, from, rawText) => {
@@ -432,19 +442,6 @@ const commands = {
       });
     }
 
-    // if (sub === 'pesan') {
-    //   const text = args.slice(1).join(' ');
-    //   if (!text) return sock.sendMessage(from, { text: 'Format: reminder pesan <teks>' });
-    //   // store pesan di settings: we don't have setReminder msg function; use setTarget as quick hack? better: extend db later.
-    //   // For now, we store it in settings.reminder_time as "HH:mm|MESSAGE" conservatively
-    //   const settings = await getSettings(from);
-    //   const time = settings?.reminder_time || null;
-    //   await setReminder(from, time ? time : '00:00'); // ensure row exists
-    //   // hack: store message in settings table is not implemented; ideally add setReminderMessage in db.js
-    //   await sock.sendMessage(from, { text: 'Pesan reminder disimpan (note: pesan disimpan sementara). Fitur lengkap akan ditambah di DB.' });
-    //   return;
-    // }
-
     // otherwise treat as time
     const time = sub;
     if (!/^\d{2}:\d{2}$/.test(time)) return sock.sendMessage(from, { text: 'Format: reminder HH:mm (24h)' });
@@ -569,16 +566,185 @@ const commands = {
 async function handleMessage(sock, msg) {
   try {
     if (!msg.message || !msg.key.remoteJid) return;
+    const from = msg.key.remoteJid;
     if (msg.key.fromMe) return; // ignore bot's own messages
 
-    const from = msg.key.remoteJid;
-    // get plain text (support extended)
-    const text = msg.message.conversation || msg.message.extendedTextMessage?.text || msg.message?.imageMessage?.caption || '';
+    // ----- robust text extraction (include buttons / template replies) -----
+    let text =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text ||
+      msg.message?.imageMessage?.caption ||
+      msg.message?.buttonsResponseMessage?.selectedDisplayText ||
+      msg.message?.buttonsResponseMessage?.selectedButtonId ||
+      msg.message?.templateButtonReplyMessage?.selectedDisplayText ||
+      msg.message?.templateButtonReplyMessage?.selectedId ||
+      '';
+
+    // debug: show incoming message types (hapus/comment kalau sudah ok)
+    // console.log('[DEBUG message keys]', Object.keys(msg.message), 'text=', text);
+
     if (!text) return;
 
-    const raw = text.trim();
+    const raw = String(text).trim();
     const parts = raw.split(/\s+/);
-    const first = parts[0].toLowerCase();
+    const first = (parts[0] || '').toLowerCase();
+
+    // === GLOBAL KEYWORDS (tampil menu / navigasi) ===
+    const rawLower = raw.toLowerCase();
+
+    // Always allow menu to show (whether authorized or not)
+    if (rawLower === 'menu' || rawLower === 'help menu') {
+      await sock.sendMessage(from, {
+        text: `📋 *Pilih fitur utama:*\n
+          1️⃣ *CAKU* → ketik *CAKU* (Catat Keuangan)
+          2️⃣ *CIG* → ketik *CIG* (Check Following IG)
+          3️⃣ *OSINT* → ketik *OSINT* (Lacak Informasi Publik)\n
+          Ketik nama fitur di atas untuk melanjutkan.`,
+      });
+      return;
+    }
+
+    // allow user to ask to go back to menu anytime
+    if (rawLower === 'ulang' || rawLower === 'menu utama') {
+      await sock.sendMessage(from, {
+        text: `🔁 Kembali ke menu utama.\n
+        📋 *Pilih fitur utama:*\n
+        1️⃣ *CAKU* → ketik *CAKU*
+        2️⃣ *CIG* → ketik *CIG*
+        3️⃣ *OSINT* → ketik *OSINT*`
+      });
+      return;
+    }
+
+
+    // Shortcut to the two features (works pre/post auth)
+    if (rawLower === 'caku') {
+      // if user authorized let them know they can use CAKU commands; else prompt token
+      if (isAuthorized(from)) {
+        await sock.sendMessage(from, { text: '💰 Kamu sudah aktif. Ketik perintah CAKU seperti `+100000 Gaji` atau `laporan`. Untuk detail lainnya ketik perintah `help`.' });
+      } else {
+        await sock.sendMessage(from, { text: '🔑 Silakan masukkan token kamu untuk mengaktifkan akses CAKU.' });
+      }
+      return;
+    }
+
+    if (rawLower === 'cig' || rawLower === 'checkig') {
+      await sock.sendMessage(from, { text: '🔗 Cek siapa yang tidak follow balik kamu di sini:\nhttps://checkig-bylionx.streamlit.app/', linkPreview: false });
+      return;
+    }
+
+    if (rawLower === 'osint') {
+      await sock.sendMessage(from, {
+        text: '🕵️‍♂️ *Fitur OSINT aktif!*\n\nKetik dengan format:\n`osint <nomor|email|nama>`\n\nContoh:\n`osint 628123456789`\n`osint someone@email.com`\n`osint John Doe`'
+      });
+      return;
+    }
+
+    // === Command OSINT langsung ===
+    if (rawLower.startsWith('osint ')) {
+      const target = raw.slice(6).trim();
+      if (!target) {
+        await sock.sendMessage(from, { text: '🕵️‍♂️ Format salah.\nContoh:\n• osint Angga Sulistiangga\n• osint +6281234567890' });
+        return;
+      }
+      const result = await runOsint(target);
+      await sock.sendMessage(from, { text: result });
+      return;
+    }
+
+    // === Token-only input (format sederhana: 8 chars alnum) - also allow before auth ===
+    if (/^[A-Z0-9]{8}$/.test(raw.toUpperCase())) {
+      // verifyToken returns boolean or object depending on your auth.js implementation
+      const ok = verifyToken(from, raw.toUpperCase());
+      if (ok && ok.success === false && ok.msg) {
+        // if your verifyToken returns {success,msg} (like earlier snippets)
+        await sock.sendMessage(from, { text: ok.msg });
+      } else if (ok === true || (ok && ok.success)) {
+        await sock.sendMessage(from, { text: '✅ Token valid! Akses CAKU sudah aktif, kamu bisa mulai mencatat keuangan.' });
+      } else {
+        await sock.sendMessage(from, { text: '❌ Token tidak valid atau sudah kadaluarsa.' });
+      }
+      return;
+    }
+
+    // === Aktivasi Token ===
+    if (raw.toLowerCase().startsWith('token ')) {
+      const token = raw.split(' ')[1];
+      const result = verifyToken(from, token);
+      await sock.sendMessage(from, { text: result.msg });
+      return;
+    }
+
+    function normalizeJid(jid) {
+      if (!jid) return '';
+      return jid.split('@')[0]; // return nomor saja
+    }
+
+    const senderNum = normalizeJid(from);
+    const adminNum = normalizeJid(ADMIN_JID);
+
+    // debug log (tampilkan di console saat testing)
+    console.log('[DEBUG admin check] from=', from, 'senderNum=', senderNum, 'adminNum=', adminNum, 'raw=', raw);
+
+    if (senderNum === adminNum) {
+      // buatoken atau "buat token"
+      if (rawLower.startsWith('buatoken') || rawLower.startsWith('buat token')) {
+        const parts = raw.split(/\s+/);
+        const hari = parseInt(parts[1], 10) || 3;
+        try {
+          const token = generateToken(hari);
+          await sock.sendMessage(from, { text: `✅ Token baru: *${token}*\nBerlaku selama ${hari} hari.` });
+        } catch (e) {
+          console.error('Error generateToken', e);
+          await sock.sendMessage(from, { text: '❌ Gagal membuat token (cek log).' });
+        }
+        return;
+      }
+
+      // listuser (case-insensitive)
+      if (rawLower === 'listuser' || rawLower === 'list user') {
+        try {
+          const users = listUsers();
+          if (!users || users.length === 0) {
+            await sock.sendMessage(from, { text: 'Belum ada user terdaftar.' });
+          } else {
+            const list = users
+              .map(u => `🔹 *${u.jid || '-'}*\nToken: ${u.token}\n${u.status}\nMasa: ${u.expiresInDays} hari`)
+              .join('\n\n');
+            await sock.sendMessage(from, { text: list });
+          }
+        } catch (e) {
+          console.error('Error listUsers', e);
+          await sock.sendMessage(from, { text: '❌ Gagal mengambil daftar user (cek log).' });
+        }
+        return;
+      }
+
+      // kick <jid>  or kick <number>
+      if (rawLower.startsWith('kick ')) {
+        const parts = raw.split(/\s+/);
+        let jidKick = parts[1] || '';
+        // jika admin kirim hanya nomor, tambahkan domain
+        if (!jidKick.includes('@')) {
+          jidKick = `${jidKick}@s.whatsapp.net`;
+        }
+        const success = deactivateUser(jidKick);
+        await sock.sendMessage(from, {
+          text: success
+            ? `🚫 User ${jidKick} telah dinonaktifkan.`
+            : `❌ Tidak ditemukan user ${jidKick}.`
+        });
+        return;
+      }
+    }
+
+    // === Cek Otorisasi ===
+    if (!isAuthorized(from)) {
+      await sock.sendMessage(from, {
+        text: '🚫 Akses kamu tidak aktif atau sudah kadaluarsa.\nKirim token dengan format:\n`token <kode>`'
+      });
+      return;
+    }
 
     // Automatic: if message begins with + or - treat as tambah
     if (/^[+-]\d+/.test(first)) {
