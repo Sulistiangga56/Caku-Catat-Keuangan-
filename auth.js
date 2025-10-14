@@ -45,16 +45,24 @@ function verifyToken(jid, token) {
   return { success: true, msg: 'Token berhasil diaktifkan!' };
 }
 
-function isAuthorized(jid) {
+function isAuthorized(jid, participantJid = null) {
   const users = loadUsers();
-  const user = users.find(u => u.jid === jid && u.active);
+  console.log('🕵️‍♂️ Cek otorisasi untuk JID:', jid, 'participant:', participantJid);
+
+  const user = users.find(u =>
+    u.active &&
+    (
+      u.jid === jid ||            // cocok untuk chat pribadi
+      u.jid === participantJid    // cocok untuk user yang bicara di grup
+    )
+  );
+
   if (!user) return false;
 
   // cek expired
   const activated = new Date(user.activatedAt);
   const now = new Date();
   const diffDays = Math.floor((now - activated) / (1000 * 60 * 60 * 24));
-
   if (diffDays >= user.expiresInDays) {
     user.active = false;
     saveUsers(users);

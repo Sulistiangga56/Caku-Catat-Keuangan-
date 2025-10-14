@@ -2,7 +2,7 @@
 require("dotenv").config();
 const { runOsint } = require('./osint');
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('baileys');
 const {
   addTransaction, editTransaction, deleteTransaction, getSummary, getTransactions,
   getCategorySummary, setTarget, setReminder, getSettings, getAllUsersWithReminder
@@ -652,21 +652,24 @@ async function handleMessage(sock, msg) {
       return;
     }
 
-    // === Token-only input (format sederhana: 8 chars alnum) - also allow before auth ===
-    if (/^[A-Z0-9]{8}$/.test(raw.toUpperCase())) {
-      // verifyToken returns boolean or object depending on your auth.js implementation
-      const ok = verifyToken(from, raw.toUpperCase());
-      if (ok && ok.success === false && ok.msg) {
-        // if your verifyToken returns {success,msg} (like earlier snippets)
-        await sock.sendMessage(from, { text: ok.msg });
-      } else if (ok === true || (ok && ok.success)) {
-        await sock.sendMessage(from, { text: '✅ Token valid! Akses CAKU sudah aktif, kamu bisa mulai mencatat keuangan.' });
+    // === Token-only input ===
+    // Hanya proses kalau pesan benar-benar dimulai dengan 'token ' atau 'TOKEN '
+    if (/^token\s+[A-Z0-9]{4,}$/.test(raw.toUpperCase())) {
+      const token = raw.split(/\s+/)[1]?.toUpperCase();
+      if (!token) {
+        await sock.sendMessage(from, { text: '⚠️ Format salah. Gunakan: `token <kode>`' });
+        return;
+      }
+
+      const result = verifyToken(from, token);
+      if (result && result.msg) {
+        await sock.sendMessage(from, { text: result.msg });
       } else {
-        await sock.sendMessage(from, { text: '❌ Token tidak valid atau sudah kadaluarsa.' });
+        await sock.sendMessage(from, { text: result ? '✅ Token aktif!' : '❌ Token tidak valid.' });
       }
       return;
     }
-
+    
     // === Aktivasi Token ===
     if (raw.toLowerCase().startsWith('token ')) {
       const token = raw.split(' ')[1];
@@ -775,11 +778,13 @@ async function handleMessage(sock, msg) {
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState('auth');
   const sock = makeWASocket({
+    printQRInTerminal: true,
     auth: state,
-    defaultQueryTimeoutMs: 60000,
-    keepAliveIntervalMs: 30000,
-    markOnlineOnConnect: true
+    syncFullHistory: false,
+    markOnlineOnConnect: false,
+    generateHighQualityLinkPreview: false
   });
+
 
   sock.ev.on('creds.update', saveCreds);
 
