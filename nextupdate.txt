@@ -1,0 +1,33 @@
+🧠 2. Daily Motivation / Quote Bot
+
+Bikin semangat tiap pagi.
+
+🔹 Kirim pesan pagi otomatis:
+
+“Selamat pagi, Angga! 🌞 Jangan lupa bersyukur hari ini.”
+🔹 Bisa diambil dari API (quotes, ayat, afirmasi, dll)
+🔹 Bisa ditambah “mode lucu” atau “mode serius”
+
+🛍️ 4. Wishlist + Price Tracker
+
+Biar gak kalap waktu belanja.
+
+🔹 Tambah item: wishlist keyboard logitech
+🔹 Bot simpan, dan bisa cek harga dari e-commerce (Tokopedia/Shopee API unofficial).
+🔹 Bisa kasih notifikasi “barang kamu turun harga!”
+
+🧘‍♂️ 6. Mood Tracker / Journal Bot
+
+Biar mental health juga keurus 💚
+
+🔹 Catat: mood hari ini bahagia 8/10
+🔹 Bot simpan & kasih analisis mingguan (“Kamu lebih sering stres di hari Senin 😅”)
+🔹 Bisa disatukan sama quote/motivation bot di atas
+
+🌤️ 7. Info Harian Lokal
+
+Asisten “pagi hari”.
+
+🔹 Kombinasi: cuaca, kalender, event lokal, kurs dolar
+🔹 Kirim ringkasan pagi via WhatsApp
+🔹 “Hari ini: cerah 32°C ☀️, dolar 15.800, mood: positif 💪”

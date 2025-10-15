@@ -2,10 +2,11 @@
 require("dotenv").config();
 const { runOsint } = require('./osint');
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('baileys');
+const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, downloadContentFromMessage } = require('baileys');
 const {
-  addTransaction, editTransaction, deleteTransaction, getSummary, getTransactions,
-  getCategorySummary, setTarget, setReminder, getSettings, getAllUsersWithReminder
+  pool, addTransaction, editTransaction, deleteTransaction, getSummary, getTransactions,
+  getCategorySummary, setTarget, setReminder, getSettings, getAllUsersWithReminder, setVaultPin, verifyVaultPin, saveVaultVideo,
+  listVaultVideos, getVaultVideo
 } = require('./db');
 
 const {
@@ -15,7 +16,7 @@ const {
   listUsers,
   deactivateUser
 } = require('./auth');
-const ADMIN_JID = '6281380036932@s.whatsapp.net';
+const ADMIN_JID = process.env.ADMIN_JID;
 const moment = require('moment');
 const qrcode = require('qrcode-terminal');
 const ExcelJS = require('exceljs');
@@ -29,6 +30,16 @@ const openai = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
+
+// const vaultState = {};
+const VAULT_DIR = path.join(__dirname, 'vault_videos');
+const VAULT_DRIVE_FOLDER_LINK = process.env.VAULT_DRIVE_FOLDER_LINK;
+const VAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 menit
+if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR);
+global.vaultState = global.vaultState || {};
+const vaultState = global.vaultState;
+
+
 
 const OUT_DIR = path.resolve(__dirname, 'out');
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR);
@@ -562,12 +573,106 @@ const commands = {
   }
 };
 
+async function saveVaultVideoMessage(sock, msg, userId, title) {
+  const media = msg.message.videoMessage;
+  if (!media) throw new Error('Pesan bukan video');
+
+  const stream = await downloadContentFromMessage(media, 'video');
+  const buffer = [];
+  for await (const chunk of stream) {
+    buffer.push(chunk);
+  }
+
+  const fileName = `${Date.now()}_${title.replace(/\s+/g, '_')}.mp4`;
+  const filePath = path.join(VAULT_DIR, fileName);
+  fs.writeFileSync(filePath, Buffer.concat(buffer));
+
+  await saveVaultVideo(userId, title, filePath);
+  return filePath;
+}
+
+
 // MAIN message handler
 async function handleMessage(sock, msg) {
+  console.log('[DEBUG MSG TYPE]', Object.keys(msg.message)[0]);
   try {
     if (!msg.message || !msg.key.remoteJid) return;
     const from = msg.key.remoteJid;
+    const isVideo = !!msg.message?.videoMessage;
     if (msg.key.fromMe) return; // ignore bot's own messages
+
+    // if (msg.message.videoMessage && vaultState[from]?.uploadTitle) {
+    //   try {
+    //     const media = msg.message.videoMessage;
+    //     const stream = await downloadContentFromMessage(media, 'video');
+    //     const bufferChunks = [];
+    //     for await (const chunk of stream) bufferChunks.push(chunk);
+    //     const buffer = Buffer.concat(bufferChunks);
+
+    //     const fileName = `${Date.now()}_${vaultState[from].uploadTitle.replace(/\s+/g, '_')}.mp4`;
+    //     const filePath = path.join(VAULT_DIR, fileName);
+
+    //     fs.writeFileSync(filePath, buffer);
+    //     await saveVaultVideo(from, vaultState[from].uploadTitle, filePath);
+    //     delete vaultState[from].uploadTitle;
+
+    //     await sock.sendMessage(from, { text: '✅ Video berhasil disimpan di Vault.' });
+    //   } catch (err) {
+    //     console.error('Error save video:', err);
+    //     await sock.sendMessage(from, { text: '❌ Gagal menyimpan video.' });
+    //   }
+    //   return;
+    // }
+
+    console.log('[bot] [VAULT DEBUG] vaultState check =>', vaultState[from]);
+
+    // ======= HANDLE KETIKA VIDEO DIKIRIM =======
+    if (msg.message.videoMessage && vaultState[from]?.uploadTitle) {
+      console.log(`[VAULT DEBUG] Detected videoMessage from ${from}, state:`, vaultState[from]);
+      const title = vaultState[from].uploadTitle;
+      const target = vaultState[from].uploadTarget;
+
+      try {
+        const media = msg.message.videoMessage;
+        const stream = await downloadContentFromMessage(media, 'video');
+        const buffer = [];
+        for await (const chunk of stream) buffer.push(chunk);
+        console.log(`[VAULT DEBUG] Received video buffer, length=${Buffer.concat(buffer).length}`);
+
+        if (target === 'drive') {
+          console.log('[VAULT DEBUG] Upload target: DRIVE');
+          const driveModule = require('./drive');
+          const uploadToDrive = driveModule.uploadToDrive || driveModule.default?.uploadToDrive;
+          // Ambil folderId dari env VAULT_DRIVE_FOLDER_LINK (pastikan ini adalah folderId, bukan link)
+          // Jika VAULT_DRIVE_FOLDER_LINK adalah link, ambil ID dari link
+          let folderId = process.env.VAULT_DRIVE_FOLDER_LINK;
+          // Jika folderId berupa link, ekstrak ID dari link Google Drive
+          if (folderId && folderId.includes('folders/')) {
+            const match = folderId.match(/\/folders\/([a-zA-Z0-9_-]+)/);
+            if (match) folderId = match[1];
+          }
+          const gfile = await uploadToDrive(Buffer.concat(buffer), `${title}.mp4`, folderId);
+
+          await sock.sendMessage(from, {
+            text: `✅ Video berhasil diupload ke Google Drive.\n📂 Folder: ${process.env.VAULT_DRIVE_FOLDER_LINK}\n🔗 Link file: ${gfile.webViewLink}`
+          });
+        } else {
+          console.log('[VAULT DEBUG] Upload target: LOCAL');
+          const fileName = `${Date.now()}_${title.replace(/\s+/g, '_')}.mp4`;
+          const filePath = path.join(VAULT_DIR, fileName);
+          fs.writeFileSync(filePath, Buffer.concat(buffer));
+          await saveVaultVideo(from, title, filePath);
+          await sock.sendMessage(from, { text: '✅ Video berhasil disimpan di Vault lokal.' });
+        }
+
+        delete vaultState[from].uploadTitle;
+        delete vaultState[from].uploadTarget;
+      } catch (err) {
+        console.error('Error save video:', err);
+        await sock.sendMessage(from, { text: '❌ Gagal menyimpan video.' });
+      }
+      return;
+    }
 
     // ----- robust text extraction (include buttons / template replies) -----
     let text =
@@ -596,47 +701,232 @@ async function handleMessage(sock, msg) {
     if (rawLower === 'menu' || rawLower === 'help menu') {
       await sock.sendMessage(from, {
         text: `📋 *Pilih fitur utama:*\n
-          1️⃣ *CAKU* → ketik *CAKU* (Catat Keuangan)
-          2️⃣ *CIG* → ketik *CIG* (Check Following IG)
-          3️⃣ *OSINT* → ketik *OSINT* (Lacak Informasi Publik)\n
-          Ketik nama fitur di atas untuk melanjutkan.`,
+1️⃣ *CAKU* → ketik *CAKU* (Catat Keuangan)
+2️⃣ *CIG* → ketik *CIG* (Check Following IG)
+3️⃣ *OSINT* → ketik *OSINT* (Lacak Informasi Publik)
+4️⃣ *VAULT* → ketik *VAULT* (Simpan Video Aman)\n
+Ketik nama fitur di atas untuk melanjutkan.`,
       });
       return;
     }
 
-    // allow user to ask to go back to menu anytime
+    // allow user to go back to menu anytime
     if (rawLower === 'ulang' || rawLower === 'menu utama') {
       await sock.sendMessage(from, {
         text: `🔁 Kembali ke menu utama.\n
-        📋 *Pilih fitur utama:*\n
-        1️⃣ *CAKU* → ketik *CAKU*
-        2️⃣ *CIG* → ketik *CIG*
-        3️⃣ *OSINT* → ketik *OSINT*`
+📋 *Pilih fitur utama:*\n
+1️⃣ *CAKU* → ketik *CAKU*
+2️⃣ *CIG* → ketik *CIG*
+3️⃣ *OSINT* → ketik *OSINT*
+4️⃣ *VAULT* → ketik *VAULT*`
       });
       return;
     }
 
+    // === SHORTCUTS TO FEATURE ENTRY POINTS ===
 
-    // Shortcut to the two features (works pre/post auth)
+    // CAKU
     if (rawLower === 'caku') {
-      // if user authorized let them know they can use CAKU commands; else prompt token
       if (isAuthorized(from)) {
-        await sock.sendMessage(from, { text: '💰 Kamu sudah aktif. Ketik perintah CAKU seperti `+100000 Gaji` atau `laporan`. Untuk detail lainnya ketik perintah `help`.' });
+        await sock.sendMessage(from, {
+          text: '💰 Kamu sudah aktif. Ketik perintah CAKU seperti `+100000 Gaji` atau `laporan`.\nUntuk bantuan ketik `help`.'
+        });
       } else {
         await sock.sendMessage(from, { text: '🔑 Silakan masukkan token kamu untuk mengaktifkan akses CAKU.' });
       }
       return;
     }
 
+    // CIG
     if (rawLower === 'cig' || rawLower === 'checkig') {
-      await sock.sendMessage(from, { text: '🔗 Cek siapa yang tidak follow balik kamu di sini:\nhttps://checkig-bylionx.streamlit.app/', linkPreview: false });
+      await sock.sendMessage(from, {
+        text: '🔗 Cek siapa yang tidak follow balik kamu di sini:\nhttps://checkig-bylionx.streamlit.app/',
+        linkPreview: false
+      });
       return;
     }
 
+    // OSINT
     if (rawLower === 'osint') {
       await sock.sendMessage(from, {
         text: '🕵️‍♂️ *Fitur OSINT aktif!*\n\nKetik dengan format:\n`osint <nomor|email|nama>`\n\nContoh:\n`osint 628123456789`\n`osint someone@email.com`\n`osint John Doe`'
       });
+      return;
+    }
+
+    // VAULT
+    if (rawLower === 'vault') {
+      await sock.sendMessage(from, {
+        text: `🔒 *Fitur Personal Vault aktif!*\n
+              Kamu bisa menyimpan video pribadi dengan aman (terenkripsi & butuh PIN).\n
+              📌 *Perintah dasar:*
+              • Set PIN baru → \`vault pin <pin>\`
+              • Login → \`vault auth <pin>\`
+              • Upload video → \`upload video <judul>\` lalu kirim videonya
+              • Lihat daftar → \`vault list\`
+              • Ambil video → \`vault get <judul>\`
+              • Logout → \`vault logout\``
+      });
+      return;
+    }
+
+    // === VAULT COMMANDS ===
+    if (rawLower.startsWith('vault pin ')) {
+      const pin = raw.split(' ')[2];
+      if (!pin || pin.length < 4) {
+        await sock.sendMessage(from, { text: 'PIN minimal 4 angka.' });
+        return;
+      }
+
+      // cek apakah user sudah punya PIN
+      const [rows] = await pool.execute(`SELECT * FROM vault_users WHERE user_id = ?`, [from]);
+      if (rows.length > 0) {
+        await sock.sendMessage(from, { text: '❌ PIN sudah diset sebelumnya. Harap hubungi admin jika ingin diubah.' });
+        return;
+      }
+
+      // set PIN pertama kali
+      await setVaultPin(from, pin);
+      await sock.sendMessage(from, { text: '✅ PIN Vault berhasil diset!' });
+      return;
+    }
+
+
+    if (rawLower.startsWith('vault auth ')) {
+      const pin = raw.split(' ')[2];
+      if (!pin) return await sock.sendMessage(from, { text: 'Masukkan PIN kamu: vault auth <pin>' });
+      const valid = await verifyVaultPin(from, pin);
+      if (!valid) return await sock.sendMessage(from, { text: '❌ PIN salah!' });
+      vaultState[from] = { auth: true, lastActive: Date.now() };
+      await sock.sendMessage(from, { text: '🔓 Akses Vault dibuka untuk sesi ini.' });
+      return;
+    }
+
+    if (rawLower === 'vault logout') {
+      if (!vaultState[from]?.auth) {
+        await sock.sendMessage(from, { text: '🔐 Kamu belum login ke Vault.' });
+        return;
+      }
+      delete vaultState[from];
+      await sock.sendMessage(from, { text: '🚪 Kamu telah logout dari Vault.' });
+      return;
+    }
+
+
+    // ======== VAULT STATE ========
+    function updateVaultActivity(userId) {
+      if (vaultState[userId]?.auth) {
+        vaultState[userId].lastActive = Date.now();
+      }
+    }
+
+    function isVaultActive(userId) {
+      const state = vaultState[userId];
+      if (!state || !state.auth) return false;
+      if (Date.now() - state.lastActive > VAULT_TIMEOUT_MS) {
+        delete vaultState[userId];
+        return false;
+      }
+      return true;
+    }
+
+    // ======== VAULT UPLOAD HANDLER (DEBUGGED) ========
+
+    if (rawLower.startsWith('upload video ')) {
+      if (!isVaultActive(from)) {
+        await sock.sendMessage(from, { text: '🔒 Sesi Vault kamu sudah habis atau belum login. Ketik `vault auth <pin>` untuk login kembali.' });
+        return;
+      }
+
+      updateVaultActivity(from);
+
+      // 🧠 Parsing command
+      let parts = raw.trim().split(/\s+/).slice(2); // hapus 'upload video'
+      let lastWord = parts[parts.length - 1]?.toLowerCase()?.trim();
+      let target = 'local';
+
+      if (['drive', 'local'].includes(lastWord)) {
+        target = lastWord;
+        parts.pop();
+      }
+
+      const title = parts.join(' ').trim();
+      console.log(`[VAULT DEBUG] Command parsed => title="${title}", target="${target}", parts=`, parts);
+
+      if (!title) return await sock.sendMessage(from, { text: 'Masukkan judul yang valid.' });
+
+      vaultState[from] = { uploadTitle: title, uploadTarget: target };
+      console.log(`[VAULT DEBUG] vaultState[${from}] =`, vaultState[from]);
+
+      await sock.sendMessage(from, {
+        text: `🎬 Kirim video untuk disimpan dengan judul: "${title}" ke ${target === 'drive' ? 'Google Drive' : 'database lokal'}`
+      });
+      return;
+    }
+
+    if (rawLower === 'vault list') {
+      if (!isVaultActive(from)) {
+        await sock.sendMessage(from, { text: '🔒 Sesi Vault kamu sudah habis atau belum login. Ketik `vault auth <pin>` untuk login kembali.' });
+        return;
+      }
+      updateVaultActivity(from);
+      const { listDriveFiles } = require('./drive');
+      const folderId = '1b8lyrO-tfAgdyQdcGFHIqNEFUhDUYwc-';
+
+      const localList = await listVaultVideos(from);
+      let driveList = [];
+      try {
+        driveList = await listDriveFiles(folderId);
+      } catch (e) {
+        console.error('[VAULT DEBUG] Gagal ambil list Drive:', e.message);
+      }
+
+      if (!localList.length && !driveList.length)
+        return await sock.sendMessage(from, { text: '📂 Belum ada video tersimpan di Vault (lokal atau Drive).' });
+
+      let msg = '🎥 *Daftar Video:*\n';
+      if (localList.length) {
+        msg += '\n📁 *Lokal:*\n' + localList.map((v, i) => `${i + 1}. ${v.title}`).join('\n');
+      }
+      if (driveList.length) {
+        msg += '\n☁️ *Google Drive:*\n' + driveList.map((v, i) => `${i + 1}. ${v.name}`).join('\n');
+      }
+      await sock.sendMessage(from, { text: msg });
+      return;
+    }
+
+    if (rawLower.startsWith('vault get ')) {
+      if (!isVaultActive(from)) {
+        await sock.sendMessage(from, { text: '🔒 Sesi Vault kamu sudah habis atau belum login. Ketik `vault auth <pin>` untuk login kembali.' });
+        return;
+      }
+      updateVaultActivity(from);
+      const title = raw.slice(10).trim();
+      const { listDriveFiles, getDriveFile } = require('./drive');
+      const folderId = '1b8lyrO-tfAgdyQdcGFHIqNEFUhDUYwc-';
+
+      // Cek di lokal dulu
+      let video = await getVaultVideo(from, title);
+
+      if (video) {
+        await sock.sendMessage(from, { video: { url: video.file_path }, caption: `🎬 ${title} (lokal)` });
+        return;
+      }
+
+      // Kalau gak ada di lokal, coba cek di Drive
+      try {
+        const driveFiles = await listDriveFiles(folderId);
+        const match = driveFiles.find(f => f.name.toLowerCase().includes(title.toLowerCase()));
+        if (!match) return await sock.sendMessage(from, { text: '❌ Video tidak ditemukan di lokal maupun Drive.' });
+
+        await sock.sendMessage(from, {
+          video: { url: match.webContentLink },
+          caption: `🎬 ${match.name} (Drive)`
+        });
+      } catch (err) {
+        console.error('Error get from Drive:', err);
+        await sock.sendMessage(from, { text: '❌ Gagal mengambil video dari Drive.' });
+      }
       return;
     }
 
@@ -669,7 +959,7 @@ async function handleMessage(sock, msg) {
       }
       return;
     }
-    
+
     // === Aktivasi Token ===
     if (raw.toLowerCase().startsWith('token ')) {
       const token = raw.split(' ')[1];
@@ -767,7 +1057,15 @@ async function handleMessage(sock, msg) {
       else if (cmd === 'hari' && args[0] === 'ini') await commands.hari(sock, from, args);
       else if (cmd === 'minggu' && args[0] === 'ini') await commands.minggu(sock, from, args);
       else if (cmd === 'bayar') await commands.split(sock, from, raw);
-      else await commands.help(sock, from);
+      else await sock.sendMessage(from, {
+        text: ` Halo Selamat datang di *Layanan WhatsApp Bot* kami! 🤖\n
+📋 *Pilih fitur utama:*\n
+ 1️⃣ *CAKU* → ketik *CAKU* (Catat Keuangan)
+ 2️⃣ *CIG* → ketik *CIG* (Check Following IG)
+ 3️⃣ *OSINT* → ketik *OSINT* (Lacak Informasi Publik)
+ 4️⃣ *VAULT* → ketik *VAULT* (Simpan Video Aman)\n
+Ketik nama fitur di atas untuk melanjutkan.`,
+      });
     }
   } catch (err) {
     console.error('handleMessage error', err);

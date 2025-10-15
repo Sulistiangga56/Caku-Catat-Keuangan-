@@ -11,6 +11,9 @@ const pool = mysql.createPool({
   connectionLimit: 10,
   queueLimit: 0
 });
+const crypto = require('crypto');
+const path = require('path');
+const fs = require('fs');
 
 // TRANSACTIONS
 async function addTransaction(userId, amount, description, category = null) {
@@ -205,10 +208,75 @@ async function getSettings(userId) {
   return rows[0] || null;
 }
 
-// async function getAllUsersWithReminder() {
-//   const [rows] = await pool.execute(`SELECT user_id, reminder_time FROM settings WHERE reminder_time IS NOT NULL`);
-//   return rows;
-// }
+// AES encryption helper
+const AES_KEY = process.env.AES_KEY || 'MY_SUPER_SECRET_KEY_32CHARS!!';
+function encrypt(text, key) {
+  if (!text || !key) throw new Error('encrypt(): text dan key harus terisi');
+  const iv = crypto.randomBytes(16);
+  const hashKey = crypto.createHash('sha256').update(String(key)).digest();
+  const cipher = crypto.createCipheriv('aes-256-cbc', hashKey, iv);
+  let encrypted = cipher.update(String(text), 'utf8', 'hex');
+  encrypted += cipher.final('hex');
+  return iv.toString('hex') + ':' + encrypted;
+}
+
+function decrypt(encrypted, key) {
+  if (!encrypted || !key) throw new Error('decrypt(): encrypted dan key harus terisi');
+  const [ivHex, encryptedText] = encrypted.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const hashKey = crypto.createHash('sha256').update(String(key)).digest();
+  const decipher = crypto.createDecipheriv('aes-256-cbc', hashKey, iv);
+  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+  decrypted += decipher.final('utf8');
+  return decrypted;
+}
+
+// ================= VAULT FUNCTIONS =================
+
+async function setVaultPin(userId, pin) {
+  if (!pin || !userId) throw new Error('PIN atau userId tidak boleh kosong');
+  const pinHash = encrypt(pin, String(userId)); // gunakan userId sebagai key
+  await pool.execute(
+    `INSERT INTO vault_users (user_id, pin_hash)
+     VALUES (?, ?)
+     ON DUPLICATE KEY UPDATE pin_hash = VALUES(pin_hash)`,
+    [userId, pinHash]
+  );
+}
+
+async function verifyVaultPin(userId, pin) {
+  const [rows] = await pool.execute(`SELECT pin_hash FROM vault_users WHERE user_id = ?`, [userId]);
+  if (rows.length === 0) return false;
+  try {
+    const decrypted = decrypt(rows[0].pin_hash, String(userId)); // gunakan userId sebagai key
+    return decrypted === pin;
+  } catch {
+    return false;
+  }
+}
+
+async function saveVaultVideo(userId, title, filePath) {
+  await pool.execute(
+    `INSERT INTO vault_videos (user_id, title, file_path) VALUES (?, ?, ?)`,
+    [userId, title, filePath]
+  );
+}
+
+async function listVaultVideos(userId) {
+  const [rows] = await pool.execute(
+    `SELECT id, title, file_path, created_at FROM vault_videos WHERE user_id = ? ORDER BY created_at DESC`,
+    [userId]
+  );
+  return rows;
+}
+
+async function getVaultVideo(userId, title) {
+  const [rows] = await pool.execute(
+    `SELECT * FROM vault_videos WHERE user_id = ? AND title = ? LIMIT 1`,
+    [userId, title]
+  );
+  return rows[0] || null;
+}
 
 module.exports = {
   addTransaction,
@@ -222,5 +290,10 @@ module.exports = {
   setReminder,
   getSettings,
   getAllUsersWithReminder,
+  setVaultPin,
+  verifyVaultPin,
+  saveVaultVideo,
+  listVaultVideos,
+  getVaultVideo,
   pool
 };

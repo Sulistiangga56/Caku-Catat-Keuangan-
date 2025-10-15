@@ -5,3 +5,7 @@ out
 database
 .env
 users.json
+vault_videos
+credentials.json
+token.json
+get_token.js
