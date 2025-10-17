@@ -30,6 +30,7 @@ const openai = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
 });
+const { startDailyMotivation, getMotivation } = require('./dailyMotivation');
 
 // const vaultState = {};
 const VAULT_DIR = path.join(__dirname, 'vault_videos');
@@ -38,8 +39,7 @@ const VAULT_TIMEOUT_MS = 10 * 60 * 1000; // 10 menit
 if (!fs.existsSync(VAULT_DIR)) fs.mkdirSync(VAULT_DIR);
 global.vaultState = global.vaultState || {};
 const vaultState = global.vaultState;
-
-
+const ADMIN_BOT = process.env.ADMIN_BOT;
 
 const OUT_DIR = path.resolve(__dirname, 'out');
 if (!fs.existsSync(OUT_DIR)) fs.mkdirSync(OUT_DIR);
@@ -599,30 +599,7 @@ async function handleMessage(sock, msg) {
     if (!msg.message || !msg.key.remoteJid) return;
     const from = msg.key.remoteJid;
     const isVideo = !!msg.message?.videoMessage;
-    if (msg.key.fromMe) return; // ignore bot's own messages
-
-    // if (msg.message.videoMessage && vaultState[from]?.uploadTitle) {
-    //   try {
-    //     const media = msg.message.videoMessage;
-    //     const stream = await downloadContentFromMessage(media, 'video');
-    //     const bufferChunks = [];
-    //     for await (const chunk of stream) bufferChunks.push(chunk);
-    //     const buffer = Buffer.concat(bufferChunks);
-
-    //     const fileName = `${Date.now()}_${vaultState[from].uploadTitle.replace(/\s+/g, '_')}.mp4`;
-    //     const filePath = path.join(VAULT_DIR, fileName);
-
-    //     fs.writeFileSync(filePath, buffer);
-    //     await saveVaultVideo(from, vaultState[from].uploadTitle, filePath);
-    //     delete vaultState[from].uploadTitle;
-
-    //     await sock.sendMessage(from, { text: '✅ Video berhasil disimpan di Vault.' });
-    //   } catch (err) {
-    //     console.error('Error save video:', err);
-    //     await sock.sendMessage(from, { text: '❌ Gagal menyimpan video.' });
-    //   }
-    //   return;
-    // }
+    if (msg.key.fromMe) return;
 
     console.log('[bot] [VAULT DEBUG] vaultState check =>', vaultState[from]);
 
@@ -942,6 +919,17 @@ Ketik nama fitur di atas untuk melanjutkan.`,
       return;
     }
 
+    // ====== MOTIVASI MANUAL ======
+    if (rawLower.startsWith('motivasi')) {
+      console.log('[bot] [DEBUG] Trigger motivasi:', rawLower);
+      let mode = 'serius';
+      if (rawLower.includes('lucu')) mode = 'lucu';
+      else if (rawLower.includes('dark')) mode = 'dark';
+      const quote = await getMotivation(mode);
+      await sock.sendMessage(from, { text: quote });
+      return;
+    }
+
     // === Token-only input ===
     // Hanya proses kalau pesan benar-benar dimulai dengan 'token ' atau 'TOKEN '
     if (/^token\s+[A-Z0-9]{4,}$/.test(raw.toUpperCase())) {
@@ -1098,6 +1086,8 @@ async function startBot() {
       if (shouldReconnect) setTimeout(startBot, 5000);
     } else if (connection === 'open') {
       console.log('✅ WhatsApp Bot terhubung!');
+
+      startDailyMotivation(sock, ADMIN_BOT);
     }
   });
 
@@ -1127,5 +1117,4 @@ async function startBot() {
 
   console.log('Bot siap.');
 }
-
 startBot();

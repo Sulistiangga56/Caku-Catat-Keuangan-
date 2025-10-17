@@ -1,13 +1,3 @@
-🧠 2. Daily Motivation / Quote Bot
-
-Bikin semangat tiap pagi.
-
-🔹 Kirim pesan pagi otomatis:
-
-“Selamat pagi, Angga! 🌞 Jangan lupa bersyukur hari ini.”
-🔹 Bisa diambil dari API (quotes, ayat, afirmasi, dll)
-🔹 Bisa ditambah “mode lucu” atau “mode serius”
-
 🛍️ 4. Wishlist + Price Tracker
 
 Biar gak kalap waktu belanja.
