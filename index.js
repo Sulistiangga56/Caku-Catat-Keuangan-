@@ -140,38 +140,79 @@ function sum(arr) {
 const commands = {
   help: async (sock, from) => {
     const helpText = [
-      '📌 *Perintah Bot Keuangan*',
-      '- `menu` : tampilkan menu',
-      '- `+100000 Gaji [salary]` : tambah pemasukan',
-      '- `-50000 Makan [food]` : tambah pengeluaran (category optional in [] )',
-      '- `laporan` : laporan singkat',
-      '- `laporan bulan MM-YYYY` : laporan per bulan',
-      '- `laporan kategori <category>` : laporan per kategori',
-      '- `laporan export MM-YYYY` : export xlsx & pdf',
-      '- `grafik MM-YYYY` : pie chart kategori',
-      '- `saldo` : cek saldo saat ini',
-      '- `target 10000000` : set target tabungan',
-      '- `reminder HH:mm` : set daily reminder (local time)',
-      '- `reminder list` : lihat reminder kamu',
-      '- `reminder off` : matikan reminder',
-      '- `hapus <id>` : hapus transaksi',
-      '- `edit <id> <amount> <desc> [category]` : edit transaksi',
-      '- `kategori` : lihat daftar kategori',
-      '- `cari <kata>` : cari transaksi',
-      '- `pengeluaran [bulan MM-YYYY]` : total pengeluaran (negatif) bulan ini/param',
-      '- `pemasukan [bulan MM-YYYY]` : total pemasukan (positif)',
-      '- `hari ini` / `minggu ini` : transaksi hari/ minggu ini',
-      '- `tahunan YYYY` : ringkasan per bulan tahun tersebut',
-      '- `ranking kategori [MM-YYYY]` : urut kategori berdasar pengeluaran',
-      '- `stat` : statistik singkat',
-      '- `backup` : kirim file .xlsx backup (terbatas)',
-      '- `reset` : hapus semua transaksi (butuh konfirmasi)',
-      '- `saran` : saran penghematan sederhana',
-      '- `progress` : progres target tabungan',
-      '- `split` : bagi transaksi patungan (lihat dokumentasi)',
-      '- `help` : show this help'
+      '📌 *Panduan Singkat — CAKU Bot*',
+      '',
+      '🗂️ Menu Utama',
+      '• Ketik `menu` atau `help` untuk melihat menu utama',
+      '',
+      '📝 Pencatatan Cepat',
+      '• `+100000 Gaji [salary]` → catat pemasukan',
+      '• `-50000 Makan [food]` → catat pengeluaran (kategori opsional di [])',
+      '• `edit <id> <amount> <desc> [category]` → ubah transaksi',
+      '• `hapus <id>` → hapus transaksi',
+      '',
+      '📊 Laporan & Export',
+      '• `laporan` → ringkasan terbaru',
+      '• `laporan bulan MM-YYYY` → laporan per bulan',
+      '• `laporan kategori <nama>` → laporan per kategori',
+      '• `laporan tanggal DD-MM-YYYY` atau `DD-MM-YYYY - DD-MM-YYYY` → laporan per tanggal / rentang',
+      '• `laporan export [MM-YYYY]` → ekspor XLSX & PDF',
+      '• `grafik MM-YYYY` → grafik pie kategori',
+      '',
+      '🎯 Target & Reminder',
+      '• `target 10000000` → set target tabungan',
+      '• `progress` → lihat progres target',
+      '• `reminder HH:mm` → set reminder harian',
+      '• `reminder pesan <teks>` → ubah teks reminder',
+      '• `reminder list` / `reminder off`',
+      '',
+      '🔒 Vault (simpan video pribadi)',
+      '• `vault pin <pin>` → set PIN (minimal 4 angka)',
+      '• `vault auth <pin>` → login ke Vault',
+      '• `vault logout` → logout Vault',
+      '• `upload video <judul> [drive|local]` → kirim video setelah perintah',
+      '• `vault list` → lihat daftar video',
+      '• `vault get <judul>` → ambil video',
+      '',
+      '🔎 Lainnya',
+      '• `cari <kata>` → cari transaksi',
+      '• `kategori` → daftar kategori',
+      '• `pengeluaran [MM-YYYY]` / `pemasukan [MM-YYYY]`',
+      '• `saran` → saran penghematan AI',
+      '• `backup` → kirim file .xlsx backup',
+      '• `reset` → hapus semua transaksi (butuh konfirmasi `reset iya`)',
+      '',
+      'ℹ️ Contoh cepat:',
+      '• `+150000 Gaji bulan ini [salary]`',
+      '• `laporan tanggal 10-10-2025 - 17-10-2025`',
+      '• `upload video Liburan drive` lalu kirim videonya',
+      '',
+      'Butuh bantuan lebih lanjut? Ketik `menu` untuk kembali ke menu utama.'
     ].join('\n');
+
     await sock.sendMessage(from, { text: helpText });
+  },
+
+  'admin': async (sock, from, args) => {
+    if (!args.length) {
+      return sock.sendMessage(from, { text: 'Ketik: *Admin Pesan Anda*\nContoh: _Admin saya ingin menanyakan cara melihat laporan bulan ini_' });
+    }
+
+    const message = args.join(' ');
+    const adminBot = process.env.ADMIN_BOT; // nomor pengirim admin (bot)
+    const adminJid = process.env.ADMIN_JID; // nomor penerima notifikasi (admin utama)
+
+    // Kirim balasan ke user
+    await sock.sendMessage(from, {
+      text: `🙏 *Terima kasih telah menghubungi Admin.*\nMohon tunggu beberapa saat, Admin akan segera membalas pesan Anda.`
+    });
+
+    // Kirim notifikasi ke admin utama
+    await sock.sendMessage(adminJid, {
+      text: `📩 *Notifikasi Pesan Baru dari Pengguna*\n\n👤 Dari: ${from}\n💬 Pesan: ${message}`
+    });
+
+    console.log(`📨 Pesan admin dari ${from}: ${message}`);
   },
 
   // quick keyword search (client side filtering)
@@ -240,18 +281,29 @@ const commands = {
   },
 
   laporan: async (sock, from, args) => {
-    // maintain previous behaviors
+    // laporan per bulan
     if (args[0] === 'bulan' && args[1]) {
       const month = args[1];
       const { saldo, rows } = await getSummary(from, month);
-      let rep = `📊 Laporan Bulan ${month}\nSaldo: ${formatCurrency(saldo)}\n\n`;
+
+      // hitung total masuk & keluar
+      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+      let rep = `📊 Laporan Bulan ${month}\n\n`;
+      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
+      rep += `🧾 Saldo Akhir : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
       rows.forEach(r => {
         rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
       });
+
       await sock.sendMessage(from, { text: rep });
       return;
     }
 
+    // export
     if (args[0] === 'export') {
       const month = args[1] || null;
       const rows = await getTransactions(from, { limit: 1000, month });
@@ -260,29 +312,57 @@ const commands = {
 
       await sock.sendMessage(from, { text: 'Menyiapkan file export...' });
 
-      // send files
-      await sock.sendMessage(from, { document: fs.readFileSync(xlsx), fileName: path.basename(xlsx), mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-      await sock.sendMessage(from, { document: fs.readFileSync(pdf), fileName: path.basename(pdf), mimetype: 'application/pdf' });
+      await sock.sendMessage(from, {
+        document: fs.readFileSync(xlsx),
+        fileName: path.basename(xlsx),
+        mimetype: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      });
+      await sock.sendMessage(from, {
+        document: fs.readFileSync(pdf),
+        fileName: path.basename(pdf),
+        mimetype: 'application/pdf'
+      });
       return;
     }
 
+    // laporan per kategori
     if ((args[0] === 'kategori' || args[0] === 'Kategori') && args[1]) {
       const category = args.slice(1).join(' ');
       const rows = await getTransactions(from, { limit: 200, category });
+
+      // hitung total masuk & keluar
+      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
       let rep = `📊 Laporan Kategori: ${category}\n\n`;
+      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
+      rep += `🧾 Selisih : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
       rows.forEach(r => {
         rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
       });
+
       await sock.sendMessage(from, { text: rep });
       return;
     }
 
-    // default laporan recent
+    // laporan default (recent)
     const { saldo, rows } = await getSummary(from, null);
-    let rep = `📊 Laporan Terbaru\nSaldo: ${formatCurrency(saldo)}\n\n`;
+
+    // hitung total masuk & keluar dari rows
+    const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+    const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+    let rep = `📊 Laporan Terbaru\n\n`;
+    rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
+    rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
+    rep += `🧾 Saldo Akhir : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
     rows.slice(0, 30).forEach(r => {
       rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
     });
+
     await sock.sendMessage(from, { text: rep });
   },
 
@@ -338,21 +418,29 @@ const commands = {
     await sock.sendMessage(from, { text: `📈 Total Pemasukan ${month ? `bulan ${month}` : ''}: ${formatCurrency(totalPos)}` });
   },
 
-  // day/week quick
+  // laporan per hari, minggu, dan tanggal custom
   'hari': async (sock, from, args) => {
-    // support message "hari ini"
     if (args[0] === 'ini' || args[0] === undefined) {
       const start = moment().startOf('day').format('YYYY-MM-DD HH:mm:ss');
       const end = moment().endOf('day').format('YYYY-MM-DD HH:mm:ss');
       const rows = await getTransactions(from, { limit: 1000, since: start, until: end });
       if (!rows.length) return sock.sendMessage(from, { text: 'Tidak ada transaksi hari ini.' });
-      let rep = `📅 Transaksi Hari Ini:\n\n`;
+
+      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+      let rep = `📅 *Transaksi Hari Ini (${moment().format('DD MMM YYYY')})*\n\n`;
+      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
+      rep += `🧾 Saldo Hari Ini : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
       rows.forEach(r => {
         rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('HH:mm')}\n`;
       });
       return sock.sendMessage(from, { text: rep });
     }
-    await sock.sendMessage(from, { text: 'Gunakan: "hari ini"' });
+
+    await sock.sendMessage(from, { text: 'Gunakan format: *hari ini*' });
   },
 
   'minggu': async (sock, from, args) => {
@@ -361,13 +449,78 @@ const commands = {
       const end = moment().endOf('week').format('YYYY-MM-DD HH:mm:ss');
       const rows = await getTransactions(from, { limit: 1000, since: start, until: end });
       if (!rows.length) return sock.sendMessage(from, { text: 'Tidak ada transaksi minggu ini.' });
-      let rep = `📅 Transaksi Minggu Ini:\n\n`;
+
+      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+      let rep = `📅 *Transaksi Minggu Ini (${moment(start).format('DD MMM')} - ${moment(end).format('DD MMM YYYY')})*\n\n`;
+      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
+      rep += `🧾 Saldo Minggu Ini : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
       rows.forEach(r => {
         rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('dd DD/MM HH:mm')}\n`;
       });
       return sock.sendMessage(from, { text: rep });
     }
-    await sock.sendMessage(from, { text: 'Gunakan: "minggu ini"' });
+
+    await sock.sendMessage(from, { text: 'Gunakan format: *minggu ini*' });
+  },
+
+  'laporan': async (sock, from, args) => {
+    if (args[0] === 'tanggal' && args[1]) {
+      const rangeInput = args.slice(1).join(' ').trim();
+      let startDate, endDate;
+
+      // pisahkan berdasarkan tanda " - "
+      const rangeParts = rangeInput.split('-').map(x => x.trim());
+
+      // 🧩 Deteksi apakah input mengandung dua tanggal penuh
+      if (rangeParts.length >= 6) {
+        // Format: DD-MM-YYYY - DD-MM-YYYY
+        const startStr = `${rangeParts[0]}-${rangeParts[1]}-${rangeParts[2]}`;
+        const endStr = `${rangeParts[3]}-${rangeParts[4]}-${rangeParts[5]}`;
+        startDate = moment(startStr, 'DD-MM-YYYY', true);
+        endDate = moment(endStr, 'DD-MM-YYYY', true);
+
+        if (!startDate.isValid() || !endDate.isValid()) {
+          return sock.sendMessage(from, { text: '⚠️ Format tanggal tidak valid.\nGunakan: *laporan tanggal 10-10-2025 - 17-10-2025*' });
+        }
+      } else {
+        // Format: DD-MM-YYYY saja
+        startDate = moment(rangeInput, 'DD-MM-YYYY', true);
+        if (!startDate.isValid()) {
+          return sock.sendMessage(from, { text: '⚠️ Format tanggal tidak valid.\nGunakan: *laporan tanggal 10-10-2025*' });
+        }
+        endDate = moment(startDate);
+      }
+
+      const start = startDate.startOf('day').format('YYYY-MM-DD HH:mm:ss');
+      const end = endDate.endOf('day').format('YYYY-MM-DD HH:mm:ss');
+
+      const rows = await getTransactions(from, { limit: 2000, since: start, until: end });
+      if (!rows.length) {
+        return sock.sendMessage(from, { text: `Tidak ada transaksi antara ${startDate.format('DD MMM YYYY')} dan ${endDate.format('DD MMM YYYY')}.` });
+      }
+
+      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+      let rep = `📅 *Laporan Transaksi*\n🗓️ Periode: ${startDate.format('DD MMM YYYY')} - ${endDate.format('DD MMM YYYY')}\n\n`;
+      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
+      rep += `🧾 Saldo Akhir : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
+      rows.forEach(r => {
+        rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+      });
+
+      return sock.sendMessage(from, { text: rep });
+    }
+
+    // fallback ke laporan utama
+    await commands.help(sock, from);
+    return;
   },
 
   tahunan: async (sock, from, args) => {
@@ -677,12 +830,23 @@ async function handleMessage(sock, msg) {
     // Always allow menu to show (whether authorized or not)
     if (rawLower === 'menu' || rawLower === 'help menu') {
       await sock.sendMessage(from, {
-        text: `📋 *Pilih fitur utama:*\n
-1️⃣ *CAKU* → ketik *CAKU* (Catat Keuangan)
-2️⃣ *CIG* → ketik *CIG* (Check Following IG)
-3️⃣ *OSINT* → ketik *OSINT* (Lacak Informasi Publik)
-4️⃣ *VAULT* → ketik *VAULT* (Simpan Video Aman)\n
-Ketik nama fitur di atas untuk melanjutkan.`,
+        text: `
+👋 *Halo, Selamat Datang di Layanan WhatsApp Bot Kami!* 🤖
+
+📋 *Fitur Utama yang Tersedia:*
+━━━━━━━━━━━━━━━━━━━
+1️⃣ *CAKU* — Catat & Kelola Keuangan Harian  
+2️⃣ *CIG* — Cek Siapa yang Tidak Follow Balik di Instagram  
+3️⃣ *OSINT* — Lacak Informasi Publik dengan Aman  
+4️⃣ *VAULT* — Simpan & Unduh Video dari Berbagai Platform  
+━━━━━━━━━━━━━━━━━━━
+
+💬 *Ada Pertanyaan atau Butuh Bantuan?*  
+Ketik: *Admin Pertanyaan/Keluhan Anda*  
+Contoh: _Admin saya lupa cara export laporan_
+
+Terima kasih telah menggunakan layanan kami! 🌟
+`
       });
       return;
     }
@@ -690,12 +854,23 @@ Ketik nama fitur di atas untuk melanjutkan.`,
     // allow user to go back to menu anytime
     if (rawLower === 'ulang' || rawLower === 'menu utama') {
       await sock.sendMessage(from, {
-        text: `🔁 Kembali ke menu utama.\n
-📋 *Pilih fitur utama:*\n
-1️⃣ *CAKU* → ketik *CAKU*
-2️⃣ *CIG* → ketik *CIG*
-3️⃣ *OSINT* → ketik *OSINT*
-4️⃣ *VAULT* → ketik *VAULT*`
+        text: `
+👋 *Halo, Selamat Datang di Layanan WhatsApp Bot Kami!* 🤖
+
+📋 *Fitur Utama yang Tersedia:*
+━━━━━━━━━━━━━━━━━━━
+1️⃣ *CAKU* — Catat & Kelola Keuangan Harian  
+2️⃣ *CIG* — Cek Siapa yang Tidak Follow Balik di Instagram  
+3️⃣ *OSINT* — Lacak Informasi Publik dengan Aman  
+4️⃣ *VAULT* — Simpan & Unduh Video dari Berbagai Platform  
+━━━━━━━━━━━━━━━━━━━
+
+💬 *Ada Pertanyaan atau Butuh Bantuan?*  
+Ketik: *Admin Pertanyaan/Keluhan Anda*  
+Contoh: _Admin saya lupa cara export laporan_
+
+Terima kasih telah menggunakan layanan kami! 🌟
+`
       });
       return;
     }
@@ -1046,13 +1221,23 @@ Ketik nama fitur di atas untuk melanjutkan.`,
       else if (cmd === 'minggu' && args[0] === 'ini') await commands.minggu(sock, from, args);
       else if (cmd === 'bayar') await commands.split(sock, from, raw);
       else await sock.sendMessage(from, {
-        text: ` Halo Selamat datang di *Layanan WhatsApp Bot* kami! 🤖\n
-📋 *Pilih fitur utama:*\n
- 1️⃣ *CAKU* → ketik *CAKU* (Catat Keuangan)
- 2️⃣ *CIG* → ketik *CIG* (Check Following IG)
- 3️⃣ *OSINT* → ketik *OSINT* (Lacak Informasi Publik)
- 4️⃣ *VAULT* → ketik *VAULT* (Simpan Video Aman)\n
-Ketik nama fitur di atas untuk melanjutkan.`,
+        text: `
+👋 *Halo, Selamat Datang di Layanan WhatsApp Bot Kami!* 🤖
+
+📋 *Fitur Utama yang Tersedia:*
+━━━━━━━━━━━━━━━━━━━
+1️⃣ *CAKU* — Catat & Kelola Keuangan Harian  
+2️⃣ *CIG* — Cek Siapa yang Tidak Follow Balik di Instagram  
+3️⃣ *OSINT* — Lacak Informasi Publik dengan Aman  
+4️⃣ *VAULT* — Simpan & Unduh Video dari Berbagai Platform  
+━━━━━━━━━━━━━━━━━━━
+
+💬 *Ada Pertanyaan atau Butuh Bantuan?*  
+Ketik: *Admin Pertanyaan/Keluhan Anda*  
+Contoh: _Admin saya lupa cara export laporan_
+
+Terima kasih telah menggunakan layanan kami! 🌟
+`
       });
     }
   } catch (err) {

@@ -9,25 +9,50 @@ const openai = new OpenAI({
 
 async function getMotivation(mode = "serius") {
   try {
-    const prompt =
-      mode === "lucu"
-        ? "Buat satu kalimat motivasi pagi yang lucu tapi tetap membangkitkan semangat."
-        : mode === "dark"
-        ? "Buat satu kalimat motivasi pendek untuk pagi hari dengan nuansa dark humor, bahasa Indonesia, tetap membangkitkan semangat."
-        : "Buat satu kalimat motivasi inspiratif pendek untuk pagi hari, bahasa Indonesia.";
+    const promptSets = {
+      serius: [
+        "Berikan satu quotes motivasi pagi hari yang inspiratif dalam bahasa Indonesia.",
+        "Berikan satu ayat Al-Qur'an beserta terjemahan dan artinya yang dapat memotivasi di pagi hari.",
+        "Berikan satu kalimat afirmasi positif untuk memulai hari dalam bahasa Indonesia.",
+        "Berikan satu kata-kata bijak untuk membangkitkan semangat di pagi hari dalam bahasa Indonesia.",
+        "Berikan satu pesan motivasi singkat untuk pagi hari dalam bahasa Indonesia."
+      ],
+      lucu: [
+        "Berikan satu quotes motivasi pagi hari yang lucu dan menghibur dalam bahasa Indonesia.",
+        "Berikan satu kalimat afirmasi positif yang lucu untuk memulai hari dalam bahasa Indonesia.",
+        "Berikan satu kata-kata bijak yang kocak untuk membangkitkan semangat di pagi hari dalam bahasa Indonesia.",
+        "Berikan satu pesan motivasi singkat yang lucu untuk pagi hari dalam bahasa Indonesia."
+      ],
+      dark: [
+        "Berikan satu quotes motivasi dengan nuansa dark humor dalam bahasa Indonesia.",
+        "Berikan satu kalimat afirmasi positif dengan sentuhan dark humor untuk memulai hari dalam bahasa Indonesia.",
+        "Berikan satu kata-kata bijak dengan gaya dark humor untuk membangkitkan semangat di pagi hari dalam bahasa Indonesia.",
+        "Berikan satu pesan motivasi singkat dengan dark humor untuk pagi hari dalam bahasa Indonesia."
+      ]
+    };
 
+    // Ambil semua prompt untuk mode yg dipilih
+    const prompts = promptSets[mode] || promptSets.serius;
+
+    // Pilih 1 prompt secara acak
+    const randomPrompt = prompts[Math.floor(Math.random() * prompts.length)];
+
+    console.log(`[bot] 🎯 Prompt terpilih untuk ${mode}: ${randomPrompt}`);
+
+    // Kirim prompt random itu aja ke model
     const res = await openai.chat.completions.create({
       model: "openai/gpt-oss-20b",
-      messages: [{ role: "user", content: prompt }],
+      messages: [{ role: "user", content: randomPrompt }],
     });
 
-    const text = res.choices?.[0]?.message?.content?.trim();
-    return text || "Tetap semangat hari ini! 💪";
+    const reply = res.choices?.[0]?.message?.content?.trim();
+    return reply || "✨ Semangat hari ini! Jangan lupa bersyukur 🙏";
   } catch (err) {
     console.error("[bot] getMotivation error:", err.message);
     return "⚠️ Gagal mengambil motivasi hari ini.";
   }
 }
+
 
 function startDailyMotivation(sock, adminJid) {
   console.log("[bot] Daily motivation scheduler aktif ✅");
