@@ -58,22 +58,32 @@ function formatCurrency(n) {
   return `Rp${Number(n).toLocaleString('id-ID')}`;
 }
 
-function parseAmountAndMeta(text) {
-  // Parse: +100000 Description [category]
-  // category optional within square brackets at end
-  // Return: { amount, description, category }
-  const catMatch = text.match(/\[(.+?)\]\s*$/);
-  let category = null;
-  if (catMatch) {
-    category = catMatch[1].trim();
-    text = text.slice(0, catMatch.index).trim();
-  }
+function parseAmountAndMeta(rawText) {
+  const text = rawText.trim();
 
-  const parts = text.trim().split(/\s+/);
-  const amountStr = parts[0];
-  const amount = parseInt(amountStr.replace(/[^\d-+]/g, ''), 10);
-  const description = parts.slice(1).join(' ') || '-';
-  return { amount, description, category };
+  // Nominal (+ / -)
+  const amountMatch = text.match(/([+-]?\d+)/);
+  const amount = amountMatch ? parseInt(amountMatch[1]) : NaN;
+
+  // Kategori (misal [Kebutuhan Pokok])
+  const categoryMatch = text.match(/\[(.*?)\]/);
+  const category = categoryMatch ? categoryMatch[1].trim() : null;
+
+  // 🔍 Cek apakah ada tanggal: "tanggal 20-10-2025" atau "tanggal 20/10/2025"
+  const dateMatch = text.match(/tanggal\s+(\d{1,2}[-/]\d{1,2}[-/]\d{4})/i);
+  const date = dateMatch
+    ? moment(dateMatch[1], ['DD-MM-YYYY', 'DD/MM/YYYY']).format('YYYY-MM-DD HH:mm:ss')
+    : moment().format('YYYY-MM-DD HH:mm:ss'); // default: hari ini
+
+  // Deskripsi → hapus bagian amount, kategori, dan tanggal biar bersih
+  const description = text
+    .replace(amountMatch ? amountMatch[0] : '', '')
+    .replace(categoryMatch ? categoryMatch[0] : '', '')
+    .replace(dateMatch ? dateMatch[0] : '', '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return { amount, description, category, date };
 }
 
 // Export XLSX
@@ -147,7 +157,9 @@ const commands = {
       '',
       '📝 Pencatatan Cepat',
       '• `+100000 Gaji [salary]` → catat pemasukan',
-      '• `-50000 Makan [food]` → catat pengeluaran (kategori opsional di [])',
+      '• `+100000 Gaji tanggal 10-10-2025 [salary]` → catat pemasukan untuk tanggal tertentu',
+      '• `-50000 Makan [food]` → catat pengeluaran',
+      '• `-50000 Makan tanggal 10-10-2025 [food]` → catat pengeluaran untuk tanggal tertentu',
       '• `edit <id> <amount> <desc> [category]` → ubah transaksi',
       '• `hapus <id>` → hapus transaksi',
       '',
@@ -181,6 +193,7 @@ const commands = {
       '• `saran` → saran penghematan AI',
       '• `backup` → kirim file .xlsx backup',
       '• `reset` → hapus semua transaksi (butuh konfirmasi `reset iya`)',
+      '• `motivasi <serius, lucu, dark>` → pesan motivasi',
       '',
       'ℹ️ Contoh cepat:',
       '• `+150000 Gaji bulan ini [salary]`',
@@ -274,10 +287,17 @@ const commands = {
   },
 
   tambah: async (sock, from, rawText) => {
-    const { amount, description, category } = parseAmountAndMeta(rawText);
-    if (!Number.isFinite(amount)) return await sock.sendMessage(from, { text: 'Format amount tidak valid.' });
-    const id = await addTransaction(from, amount, description, category);
-    await sock.sendMessage(from, { text: `✅ Tercatat (ID ${id}): ${formatCurrency(amount)} - ${description} ${category ? '[' + category + ']' : ''}` });
+    const { amount, description, category, date } = parseAmountAndMeta(rawText);
+
+    if (!Number.isFinite(amount)) {
+      return await sock.sendMessage(from, { text: '⚠️ Format jumlah tidak valid. Contoh: +100000 Gaji [Pemasukan]' });
+    }
+
+    const id = await addTransaction(from, amount, description, category, date);
+
+    await sock.sendMessage(from, {
+      text: `✅ Tercatat (ID ${id}): ${formatCurrency(amount)} - ${description} ${category ? '[' + category + ']' : ''}\n📅 Tanggal: ${moment(date).format('DD MMMM YYYY')}`
+    });
   },
 
   laporan: async (sock, from, args) => {
@@ -747,9 +767,16 @@ async function saveVaultVideoMessage(sock, msg, userId, title) {
 
 // MAIN message handler
 async function handleMessage(sock, msg) {
-  console.log('[DEBUG MSG TYPE]', Object.keys(msg.message)[0]);
   try {
-    if (!msg.message || !msg.key.remoteJid) return;
+    if (!msg || !msg.message) {
+      console.log('[DEBUG MSG TYPE] message kosong atau event sistem, dilewati.');
+      return;
+    }
+
+    const msgType = Object.keys(msg.message)[0];
+    console.log('[DEBUG MSG TYPE]', msgType);
+
+    if (!msg.key.remoteJid) return;
     const from = msg.key.remoteJid;
     const isVideo = !!msg.message?.videoMessage;
     if (msg.key.fromMe) return;
@@ -829,24 +856,28 @@ async function handleMessage(sock, msg) {
 
     // Always allow menu to show (whether authorized or not)
     if (rawLower === 'menu' || rawLower === 'help menu') {
+      // Tampilkan menu utama dengan lebih ringkas
       await sock.sendMessage(from, {
-        text: `
-👋 *Halo, Selamat Datang di Layanan WhatsApp Bot Kami!* 🤖
-
-📋 *Fitur Utama yang Tersedia:*
-━━━━━━━━━━━━━━━━━━━
-1️⃣ *CAKU* — Catat & Kelola Keuangan Harian  
-2️⃣ *CIG* — Cek Siapa yang Tidak Follow Balik di Instagram  
-3️⃣ *OSINT* — Lacak Informasi Publik dengan Aman  
-4️⃣ *VAULT* — Simpan & Unduh Video dari Berbagai Platform  
-━━━━━━━━━━━━━━━━━━━
-
-💬 *Ada Pertanyaan atau Butuh Bantuan?*  
-Ketik: *Admin Pertanyaan/Keluhan Anda*  
-Contoh: _Admin saya lupa cara export laporan_
-
-Terima kasih telah menggunakan layanan kami! 🌟
-`
+        text: [
+          '👋 *Selamat Datang di WhatsApp Bot!* 🤖',
+          '',
+          '📋 *Fitur Utama:*',
+          '━━━━━━━━━━━━━━━━━━━',
+          '1️⃣ *CAKU* — Catat & Kelola Keuangan',
+          '2️⃣ *CIG* — Cek Siapa Tidak Follow Balik IG',
+          '3️⃣ *OSINT* — Lacak Info Publik',
+          '4️⃣ *VAULT* — Simpan & Unduh Video',
+          '━━━━━━━━━━━━━━━━━━━',
+          '',
+          '💬 *Bantuan?*',
+          'Ketik: *Admin Pertanyaan/Keluhan Anda*',
+          'Contoh: _Admin saya lupa cara export laporan_',
+          '',
+          'Ketik: caku | cig | osint | vault',
+          'Atau: help',
+          '',
+          'Terima kasih telah menggunakan layanan kami! 🌟'
+        ].join('\n')
       });
       return;
     }
@@ -854,23 +885,26 @@ Terima kasih telah menggunakan layanan kami! 🌟
     // allow user to go back to menu anytime
     if (rawLower === 'ulang' || rawLower === 'menu utama') {
       await sock.sendMessage(from, {
-        text: `
-👋 *Halo, Selamat Datang di Layanan WhatsApp Bot Kami!* 🤖
-
-📋 *Fitur Utama yang Tersedia:*
-━━━━━━━━━━━━━━━━━━━
-1️⃣ *CAKU* — Catat & Kelola Keuangan Harian  
-2️⃣ *CIG* — Cek Siapa yang Tidak Follow Balik di Instagram  
-3️⃣ *OSINT* — Lacak Informasi Publik dengan Aman  
-4️⃣ *VAULT* — Simpan & Unduh Video dari Berbagai Platform  
-━━━━━━━━━━━━━━━━━━━
-
-💬 *Ada Pertanyaan atau Butuh Bantuan?*  
-Ketik: *Admin Pertanyaan/Keluhan Anda*  
-Contoh: _Admin saya lupa cara export laporan_
-
-Terima kasih telah menggunakan layanan kami! 🌟
-`
+        text: [
+          '👋 *Selamat Datang di WhatsApp Bot!* 🤖',
+          '',
+          '📋 *Fitur Utama:*',
+          '━━━━━━━━━━━━━━━━━━━',
+          '1️⃣ *CAKU* — Catat & Kelola Keuangan',
+          '2️⃣ *CIG* — Cek Siapa Tidak Follow Balik IG',
+          '3️⃣ *OSINT* — Lacak Info Publik',
+          '4️⃣ *VAULT* — Simpan & Unduh Video',
+          '━━━━━━━━━━━━━━━━━━━',
+          '',
+          '💬 *Bantuan?*',
+          'Ketik: *Admin Pertanyaan/Keluhan Anda*',
+          'Contoh: _Admin saya lupa cara export laporan_',
+          '',
+          'Ketik: caku | cig | osint | vault',
+          'Atau: help',
+          '',
+          'Terima kasih telah menggunakan layanan kami! 🌟'
+        ].join('\n')
       });
       return;
     }
@@ -1197,7 +1231,7 @@ Terima kasih telah menggunakan layanan kami! 🌟
     // === Cek Otorisasi ===
     if (!isAuthorized(from)) {
       await sock.sendMessage(from, {
-        text: '🚫 Akses kamu tidak aktif atau sudah kadaluarsa.\nKirim token dengan format:\n`token <kode>`'
+        text: '🚫 Akses kamu tidak aktif atau sudah kadaluarsa.\nKirim token dengan format:\n`token <kode>`\nContoh:\n`token 3X79A1U2`'
       });
       return;
     }
@@ -1221,23 +1255,26 @@ Terima kasih telah menggunakan layanan kami! 🌟
       else if (cmd === 'minggu' && args[0] === 'ini') await commands.minggu(sock, from, args);
       else if (cmd === 'bayar') await commands.split(sock, from, raw);
       else await sock.sendMessage(from, {
-        text: `
-👋 *Halo, Selamat Datang di Layanan WhatsApp Bot Kami!* 🤖
-
-📋 *Fitur Utama yang Tersedia:*
-━━━━━━━━━━━━━━━━━━━
-1️⃣ *CAKU* — Catat & Kelola Keuangan Harian  
-2️⃣ *CIG* — Cek Siapa yang Tidak Follow Balik di Instagram  
-3️⃣ *OSINT* — Lacak Informasi Publik dengan Aman  
-4️⃣ *VAULT* — Simpan & Unduh Video dari Berbagai Platform  
-━━━━━━━━━━━━━━━━━━━
-
-💬 *Ada Pertanyaan atau Butuh Bantuan?*  
-Ketik: *Admin Pertanyaan/Keluhan Anda*  
-Contoh: _Admin saya lupa cara export laporan_
-
-Terima kasih telah menggunakan layanan kami! 🌟
-`
+        text: [
+          '👋 *Selamat Datang di WhatsApp Bot!* 🤖',
+          '',
+          '📋 *Fitur Utama:*',
+          '━━━━━━━━━━━━━━━━━━━',
+          '1️⃣ *CAKU* — Catat & Kelola Keuangan',
+          '2️⃣ *CIG* — Cek Siapa Tidak Follow Balik IG',
+          '3️⃣ *OSINT* — Lacak Info Publik',
+          '4️⃣ *VAULT* — Simpan & Unduh Video',
+          '━━━━━━━━━━━━━━━━━━━',
+          '',
+          '💬 *Bantuan?*',
+          'Ketik: *Admin Pertanyaan/Keluhan Anda*',
+          'Contoh: _Admin saya lupa cara export laporan_',
+          '',
+          'Ketik: caku | cig | osint | vault',
+          'Atau: help',
+          '',
+          'Terima kasih telah menggunakan layanan kami! 🌟'
+        ].join('\n')
       });
     }
   } catch (err) {

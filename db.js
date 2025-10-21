@@ -16,12 +16,15 @@ const path = require('path');
 const fs = require('fs');
 
 // TRANSACTIONS
-async function addTransaction(userId, amount, description, category = null) {
-  const [res] = await pool.execute(
-    `INSERT INTO transactions (user_id, amount, description, category) VALUES (?, ?, ?, ?)`,
-    [userId, amount, description, category]
+async function addTransaction(user_id, amount, description, category, created_at = null) {
+  const dateValue = created_at || moment().format('YYYY-MM-DD HH:mm:ss');
+
+  const [result] = await pool.query(
+    'INSERT INTO transactions (user_id, amount, description, category, created_at) VALUES (?, ?, ?, ?, ?)',
+    [user_id, amount, description, category, dateValue]
   );
-  return res.insertId;
+
+  return result.insertId;
 }
 
 async function editTransaction(id, userId, amount, description, category = null) {
