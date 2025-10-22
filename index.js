@@ -253,7 +253,7 @@ const commands = {
       rawText = rawText?.conversation || rawText?.text || String(rawText);
     }
 
-    console.log('[DEBUG split input]', rawText);
+    // console.log('[DEBUG split input]', rawText);
 
     const regex = /bayar\s+(\d+)\s+(.*?)\s*-\s*bareng\s+(@[\d\s,@]+)(?:\s+via\s+([\w\s]+))?/i;
     const match = rawText.match(regex);
@@ -769,23 +769,23 @@ async function saveVaultVideoMessage(sock, msg, userId, title) {
 async function handleMessage(sock, msg) {
   try {
     if (!msg || !msg.message) {
-      console.log('[DEBUG MSG TYPE] message kosong atau event sistem, dilewati.');
+      // console.log('[DEBUG MSG TYPE] message kosong atau event sistem, dilewati.');
       return;
     }
 
     const msgType = Object.keys(msg.message)[0];
-    console.log('[DEBUG MSG TYPE]', msgType);
+    // console.log('[DEBUG MSG TYPE]', msgType);
 
     if (!msg.key.remoteJid) return;
     const from = msg.key.remoteJid;
     const isVideo = !!msg.message?.videoMessage;
     if (msg.key.fromMe) return;
 
-    console.log('[bot] [VAULT DEBUG] vaultState check =>', vaultState[from]);
+    // console.log('[bot] [VAULT DEBUG] vaultState check =>', vaultState[from]);
 
     // ======= HANDLE KETIKA VIDEO DIKIRIM =======
     if (msg.message.videoMessage && vaultState[from]?.uploadTitle) {
-      console.log(`[VAULT DEBUG] Detected videoMessage from ${from}, state:`, vaultState[from]);
+      // console.log(`[VAULT DEBUG] Detected videoMessage from ${from}, state:`, vaultState[from]);
       const title = vaultState[from].uploadTitle;
       const target = vaultState[from].uploadTarget;
 
@@ -794,10 +794,10 @@ async function handleMessage(sock, msg) {
         const stream = await downloadContentFromMessage(media, 'video');
         const buffer = [];
         for await (const chunk of stream) buffer.push(chunk);
-        console.log(`[VAULT DEBUG] Received video buffer, length=${Buffer.concat(buffer).length}`);
+        // console.log(`[VAULT DEBUG] Received video buffer, length=${Buffer.concat(buffer).length}`);
 
         if (target === 'drive') {
-          console.log('[VAULT DEBUG] Upload target: DRIVE');
+          // console.log('[VAULT DEBUG] Upload target: DRIVE');
           const driveModule = require('./drive');
           const uploadToDrive = driveModule.uploadToDrive || driveModule.default?.uploadToDrive;
           // Ambil folderId dari env VAULT_DRIVE_FOLDER_LINK (pastikan ini adalah folderId, bukan link)
@@ -814,7 +814,7 @@ async function handleMessage(sock, msg) {
             text: `✅ Video berhasil diupload ke Google Drive.\n📂 Folder: ${process.env.VAULT_DRIVE_FOLDER_LINK}\n🔗 Link file: ${gfile.webViewLink}`
           });
         } else {
-          console.log('[VAULT DEBUG] Upload target: LOCAL');
+          // console.log('[VAULT DEBUG] Upload target: LOCAL');
           const fileName = `${Date.now()}_${title.replace(/\s+/g, '_')}.mp4`;
           const filePath = path.join(VAULT_DIR, fileName);
           fs.writeFileSync(filePath, Buffer.concat(buffer));
@@ -1037,12 +1037,12 @@ async function handleMessage(sock, msg) {
       }
 
       const title = parts.join(' ').trim();
-      console.log(`[VAULT DEBUG] Command parsed => title="${title}", target="${target}", parts=`, parts);
+      // console.log(`[VAULT DEBUG] Command parsed => title="${title}", target="${target}", parts=`, parts);
 
       if (!title) return await sock.sendMessage(from, { text: 'Masukkan judul yang valid.' });
 
       vaultState[from] = { uploadTitle: title, uploadTarget: target };
-      console.log(`[VAULT DEBUG] vaultState[${from}] =`, vaultState[from]);
+      // console.log(`[VAULT DEBUG] vaultState[${from}] =`, vaultState[from]);
 
       await sock.sendMessage(from, {
         text: `🎬 Kirim video untuk disimpan dengan judul: "${title}" ke ${target === 'drive' ? 'Google Drive' : 'database lokal'}`
@@ -1064,7 +1064,7 @@ async function handleMessage(sock, msg) {
       try {
         driveList = await listDriveFiles(folderId);
       } catch (e) {
-        console.error('[VAULT DEBUG] Gagal ambil list Drive:', e.message);
+        // console.error('[VAULT DEBUG] Gagal ambil list Drive:', e.message);
       }
 
       if (!localList.length && !driveList.length)
@@ -1130,7 +1130,7 @@ async function handleMessage(sock, msg) {
 
     // ====== MOTIVASI MANUAL ======
     if (rawLower.startsWith('motivasi')) {
-      console.log('[bot] [DEBUG] Trigger motivasi:', rawLower);
+      // console.log('[bot] [DEBUG] Trigger motivasi:', rawLower);
       let mode = 'serius';
       if (rawLower.includes('lucu')) mode = 'lucu';
       else if (rawLower.includes('dark')) mode = 'dark';
@@ -1174,7 +1174,7 @@ async function handleMessage(sock, msg) {
     const adminNum = normalizeJid(ADMIN_JID);
 
     // debug log (tampilkan di console saat testing)
-    console.log('[DEBUG admin check] from=', from, 'senderNum=', senderNum, 'adminNum=', adminNum, 'raw=', raw);
+    // console.log('[DEBUG admin check] from=', from, 'senderNum=', senderNum, 'adminNum=', adminNum, 'raw=', raw);
 
     if (senderNum === adminNum) {
       // buatoken atau "buat token"
@@ -1309,7 +1309,7 @@ async function startBot() {
     } else if (connection === 'open') {
       console.log('✅ WhatsApp Bot terhubung!');
 
-      startDailyMotivation(sock, ADMIN_BOT);
+      startDailyMotivation(sock, ADMIN_JID);
     }
   });
 
