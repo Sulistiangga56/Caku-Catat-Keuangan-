@@ -487,7 +487,7 @@ const commands = {
     await sock.sendMessage(from, { text: 'Gunakan format: *minggu ini*' });
   },
 
-  'laporan': async (sock, from, args) => {
+  'laporan_tanggal': async (sock, from, args) => {
     if (args[0] === 'tanggal' && args[1]) {
       const rangeInput = args.slice(1).join(' ').trim();
       let startDate, endDate;
