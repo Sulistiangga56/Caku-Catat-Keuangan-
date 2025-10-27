@@ -301,6 +301,11 @@ const commands = {
   },
 
   laporan: async (sock, from, args) => {
+    // handle laporan tanggal by delegating to laporan_tanggal (ensures "laporan tanggal ..." works)
+    if (args[0] === 'tanggal' && args[1]) {
+      return await commands.laporan_tanggal(sock, from, args);
+    }
+
     // laporan per bulan
     if (args[0] === 'bulan' && args[1]) {
       const month = args[1];

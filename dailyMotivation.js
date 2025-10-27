@@ -11,23 +11,23 @@ async function getMotivation(mode = "serius") {
   try {
     const promptSets = {
       serius: [
-        "Berikan satu quotes motivasi pagi hari yang inspiratif dalam bahasa Indonesia.",
-        "Berikan satu ayat Al-Qur'an beserta terjemahan dan artinya yang dapat memotivasi di pagi hari.",
+        "Berikan satu quotes motivasi yang inspiratif dalam bahasa Indonesia.",
+        "Berikan satu ayat Al-Qur'an beserta terjemahan dan artinya yang dapat memotivasi hari.",
         "Berikan satu kalimat afirmasi positif untuk memulai hari dalam bahasa Indonesia.",
-        "Berikan satu kata-kata bijak untuk membangkitkan semangat di pagi hari dalam bahasa Indonesia.",
-        "Berikan satu pesan motivasi singkat untuk pagi hari dalam bahasa Indonesia."
+        "Berikan satu kata-kata bijak untuk membangkitkan semangat hari dalam bahasa Indonesia.",
+        "Berikan satu pesan motivasi singkat untuk hari dalam bahasa Indonesia."
       ],
       lucu: [
-        "Berikan satu quotes motivasi pagi hari yang lucu dan menghibur dalam bahasa Indonesia.",
+        "Berikan satu quotes motivasi yang lucu dan menghibur dalam bahasa Indonesia.",
         "Berikan satu kalimat afirmasi positif yang lucu untuk memulai hari dalam bahasa Indonesia.",
-        "Berikan satu kata-kata bijak yang kocak untuk membangkitkan semangat di pagi hari dalam bahasa Indonesia.",
-        "Berikan satu pesan motivasi singkat yang lucu untuk pagi hari dalam bahasa Indonesia."
+        "Berikan satu kata-kata bijak yang kocak untuk membangkitkan semangat dalam bahasa Indonesia.",
+        "Berikan satu pesan motivasi singkat yang lucu dalam bahasa Indonesia."
       ],
       dark: [
         "Berikan satu quotes motivasi dengan nuansa dark humor dalam bahasa Indonesia.",
         "Berikan satu kalimat afirmasi positif dengan sentuhan dark humor untuk memulai hari dalam bahasa Indonesia.",
-        "Berikan satu kata-kata bijak dengan gaya dark humor untuk membangkitkan semangat di pagi hari dalam bahasa Indonesia.",
-        "Berikan satu pesan motivasi singkat dengan dark humor untuk pagi hari dalam bahasa Indonesia."
+        "Berikan satu kata-kata bijak dengan gaya dark humor untuk membangkitkan semangat dalam bahasa Indonesia.",
+        "Berikan satu pesan motivasi singkat dengan dark humor dalam bahasa Indonesia."
       ]
     };
 
