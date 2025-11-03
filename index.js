@@ -301,42 +301,112 @@ const commands = {
   },
 
   laporan: async (sock, from, args) => {
-    // handle laporan tanggal by delegating to laporan_tanggal (ensures "laporan tanggal ..." works)
+    const buildReport = (rows, title = '📊 Laporan') => {
+      if (!rows.length) return "📭 Tidak ada transaksi ditemukan.";
+
+      const pemasukan = rows.filter(r => r.amount > 0);
+      const pengeluaran = rows.filter(r => r.amount < 0);
+      const totalMasuk = pemasukan.reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = pengeluaran.reduce((sum, r) => sum + Math.abs(r.amount), 0);
+
+      // 🔥 Kategori pengeluaran terbanyak
+      const kategoriMap = {};
+      pengeluaran.forEach(r => {
+        const cat = r.category || "Lainnya";
+        kategoriMap[cat] = (kategoriMap[cat] || 0) + Math.abs(r.amount);
+      });
+      const kategoriTerbanyak = Object.entries(kategoriMap)
+        .sort((a, b) => b[1] - a[1])[0];
+
+      // 💎 Transaksi terbesar
+      const transaksiMasukTerbesar = pemasukan.length
+        ? pemasukan.reduce((max, r) => r.amount > max.amount ? r : max, pemasukan[0])
+        : null;
+      const transaksiKeluarTerbesar = pengeluaran.length
+        ? pengeluaran.reduce((max, r) => Math.abs(r.amount) > Math.abs(max.amount) ? r : max, pengeluaran[0])
+        : null;
+
+      let rep = `${title}\n\n`;
+      rep += `💰 *Total Pemasukan:* ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 *Total Pengeluaran:* ${formatCurrency(totalKeluar)}\n`;
+      rep += `🧾 *Saldo Akhir:* ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
+      if (kategoriTerbanyak) {
+        rep += `🔥 *Kategori Pengeluaran Terbanyak:* ${kategoriTerbanyak[0]} (${formatCurrency(kategoriTerbanyak[1])})\n`;
+      }
+      if (transaksiMasukTerbesar) {
+        rep += `💎 *Transaksi Pemasukan Terbesar:* ${transaksiMasukTerbesar.description || '-'} (${formatCurrency(transaksiMasukTerbesar.amount)})\n`;
+      }
+      if (transaksiKeluarTerbesar) {
+        rep += `🔻 *Transaksi Pengeluaran Terbesar:* ${transaksiKeluarTerbesar.description || '-'} (${formatCurrency(Math.abs(transaksiKeluarTerbesar.amount))})\n`;
+      }
+
+      rep += `\n━━━━━━━━━━━━━━━━━━━━━━━\n📈 *Pemasukan:*\n`;
+      if (pemasukan.length === 0) rep += `— Tidak ada pemasukan.\n`;
+      pemasukan.forEach(r => {
+        rep += `➕ ${formatCurrency(r.amount)} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+      });
+
+      rep += `━━━━━━━━━━━━━━━━━━━━━━━\n📉 *Pengeluaran:*\n`;
+      if (pengeluaran.length === 0) rep += `— Tidak ada pengeluaran.\n`;
+      pengeluaran.forEach(r => {
+        rep += `➖ ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+      });
+
+      return rep;
+    };
+
+    // 🧩 laporan tanggal
     if (args[0] === 'tanggal' && args[1]) {
       return await commands.laporan_tanggal(sock, from, args);
     }
 
-    // laporan per bulan
+    // 🗓 laporan bulan
     if (args[0] === 'bulan' && args[1]) {
-      const month = args[1];
-      const { saldo, rows } = await getSummary(from, month);
+      const monthInput = args[1].trim();
+      const parsed = moment(monthInput, ['MM-YYYY', 'M-YYYY'], true);
 
-      // hitung total masuk & keluar
-      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
-      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+      if (!parsed.isValid()) {
+        return sock.sendMessage(from, {
+          text: '⚠️ Format tidak valid.\nGunakan: *laporan bulan 10-2025*'
+        });
+      }
 
-      let rep = `📊 Laporan Bulan ${month}\n\n`;
-      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
-      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
-      rep += `🧾 Saldo Akhir : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+      // Tentukan range tanggal dari awal hingga akhir bulan
+      const startDate = parsed.clone().startOf('month');
+      const endDate = parsed.clone().endOf('month');
 
-      rows.forEach(r => {
-        rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
-      });
+      const start = startDate.format('YYYY-MM-DD HH:mm:ss');
+      const end = endDate.format('YYYY-MM-DD HH:mm:ss');
 
-      await sock.sendMessage(from, { text: rep });
-      return;
+      // Ambil transaksi bulan ini (langsung, bukan dari getSummary)
+      const rows = await getTransactions(from, { limit: 3000, since: start, until: end });
+
+      if (!rows.length) {
+        return sock.sendMessage(from, { text: `Tidak ada transaksi pada bulan ${monthInput}.` });
+      }
+
+      // Gunakan fungsi buildReport agar formatnya tetap konsisten
+      const rep = buildReport(rows, `📊 *Laporan Bulan ${monthInput}*`);
+      return await sock.sendMessage(from, { text: rep });
     }
 
-    // export
+    // 📂 laporan kategori
+    if ((args[0] === 'kategori' || args[0] === 'Kategori') && args[1]) {
+      const category = args.slice(1).join(' ');
+      const rows = await getTransactions(from, { limit: 200, category });
+      const rep = buildReport(rows, `📊 *Laporan Kategori: ${category}*`);
+      return await sock.sendMessage(from, { text: rep });
+    }
+
+    // 📤 export laporan
     if (args[0] === 'export') {
       const month = args[1] || null;
       const rows = await getTransactions(from, { limit: 1000, month });
       const xlsx = await generateXlsx(from, rows);
       const pdf = await generatePdf(from, rows);
 
-      await sock.sendMessage(from, { text: 'Menyiapkan file export...' });
-
+      await sock.sendMessage(from, { text: '⏳ Menyiapkan file export...' });
       await sock.sendMessage(from, {
         document: fs.readFileSync(xlsx),
         fileName: path.basename(xlsx),
@@ -350,44 +420,9 @@ const commands = {
       return;
     }
 
-    // laporan per kategori
-    if ((args[0] === 'kategori' || args[0] === 'Kategori') && args[1]) {
-      const category = args.slice(1).join(' ');
-      const rows = await getTransactions(from, { limit: 200, category });
-
-      // hitung total masuk & keluar
-      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
-      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
-
-      let rep = `📊 Laporan Kategori: ${category}\n\n`;
-      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
-      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
-      rep += `🧾 Selisih : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
-
-      rows.forEach(r => {
-        rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
-      });
-
-      await sock.sendMessage(from, { text: rep });
-      return;
-    }
-
-    // laporan default (recent)
-    const { saldo, rows } = await getSummary(from, null);
-
-    // hitung total masuk & keluar dari rows
-    const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
-    const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
-
-    let rep = `📊 Laporan Terbaru\n\n`;
-    rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
-    rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
-    rep += `🧾 Saldo Akhir : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
-
-    rows.slice(0, 30).forEach(r => {
-      rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
-    });
-
+    // 📊 laporan default (terbaru)
+    const { rows } = await getSummary(from, null);
+    const rep = buildReport(rows, '📊 *Laporan Terbaru*');
     await sock.sendMessage(from, { text: rep });
   },
 
@@ -497,22 +532,19 @@ const commands = {
       const rangeInput = args.slice(1).join(' ').trim();
       let startDate, endDate;
 
-      // pisahkan berdasarkan tanda " - "
       const rangeParts = rangeInput.split('-').map(x => x.trim());
 
-      // 🧩 Deteksi apakah input mengandung dua tanggal penuh
+      // 🧩 Deteksi format tanggal
       if (rangeParts.length >= 6) {
         // Format: DD-MM-YYYY - DD-MM-YYYY
         const startStr = `${rangeParts[0]}-${rangeParts[1]}-${rangeParts[2]}`;
         const endStr = `${rangeParts[3]}-${rangeParts[4]}-${rangeParts[5]}`;
         startDate = moment(startStr, 'DD-MM-YYYY', true);
         endDate = moment(endStr, 'DD-MM-YYYY', true);
-
         if (!startDate.isValid() || !endDate.isValid()) {
           return sock.sendMessage(from, { text: '⚠️ Format tanggal tidak valid.\nGunakan: *laporan tanggal 10-10-2025 - 17-10-2025*' });
         }
       } else {
-        // Format: DD-MM-YYYY saja
         startDate = moment(rangeInput, 'DD-MM-YYYY', true);
         if (!startDate.isValid()) {
           return sock.sendMessage(from, { text: '⚠️ Format tanggal tidak valid.\nGunakan: *laporan tanggal 10-10-2025*' });
@@ -525,25 +557,67 @@ const commands = {
 
       const rows = await getTransactions(from, { limit: 2000, since: start, until: end });
       if (!rows.length) {
-        return sock.sendMessage(from, { text: `Tidak ada transaksi antara ${startDate.format('DD MMM YYYY')} dan ${endDate.format('DD MMM YYYY')}.` });
+        return sock.sendMessage(from, { text: `📭 Tidak ada transaksi antara ${startDate.format('DD MMM YYYY')} dan ${endDate.format('DD MMM YYYY')}.` });
       }
 
-      const totalMasuk = rows.filter(r => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
-      const totalKeluar = rows.filter(r => r.amount < 0).reduce((sum, r) => sum + Math.abs(r.amount), 0);
+      // 🔢 Hitung total
+      const pemasukan = rows.filter(r => r.amount > 0);
+      const pengeluaran = rows.filter(r => r.amount < 0);
+      const totalMasuk = pemasukan.reduce((sum, r) => sum + r.amount, 0);
+      const totalKeluar = pengeluaran.reduce((sum, r) => sum + Math.abs(r.amount), 0);
 
-      let rep = `📅 *Laporan Transaksi*\n🗓️ Periode: ${startDate.format('DD MMM YYYY')} - ${endDate.format('DD MMM YYYY')}\n\n`;
-      rep += `💰 Total Pemasukan : ${formatCurrency(totalMasuk)}\n`;
-      rep += `💸 Total Pengeluaran : ${formatCurrency(totalKeluar)}\n`;
-      rep += `🧾 Saldo Akhir : ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+      // 📊 Hitung kategori pengeluaran terbanyak
+      const kategoriMap = {};
+      pengeluaran.forEach(r => {
+        const kategori = r.category || 'Lainnya';
+        kategoriMap[kategori] = (kategoriMap[kategori] || 0) + Math.abs(r.amount);
+      });
+      const kategoriTerbanyak = Object.entries(kategoriMap)
+        .sort((a, b) => b[1] - a[1])[0];
 
-      rows.forEach(r => {
-        rep += `#${r.id} ${r.amount >= 0 ? '➕' : '➖'} ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+      // 💎 Transaksi terbesar (positif dan negatif)
+      const transaksiMasukTerbesar = pemasukan.length
+        ? pemasukan.reduce((max, r) => r.amount > max.amount ? r : max, pemasukan[0])
+        : null;
+
+      const transaksiKeluarTerbesar = pengeluaran.length
+        ? pengeluaran.reduce((max, r) => Math.abs(r.amount) > Math.abs(max.amount) ? r : max, pengeluaran[0])
+        : null;
+
+      // 🧾 Susun laporan
+      let rep = `📅 *Laporan Transaksi*\n`;
+      rep += `🗓️ Periode: ${startDate.format('DD MMM YYYY')} - ${endDate.format('DD MMM YYYY')}\n\n`;
+      rep += `💰 *Total Pemasukan:* ${formatCurrency(totalMasuk)}\n`;
+      rep += `💸 *Total Pengeluaran:* ${formatCurrency(totalKeluar)}\n`;
+      rep += `📊 *Saldo Akhir:* ${formatCurrency(totalMasuk - totalKeluar)}\n\n`;
+
+      if (kategoriTerbanyak) {
+        rep += `🔥 *Kategori Pengeluaran Terbanyak:* ${kategoriTerbanyak[0]} (${formatCurrency(kategoriTerbanyak[1])})\n`;
+      }
+      if (transaksiMasukTerbesar) {
+        rep += `💎 *Transaksi Pemasukan Terbesar:* ${transaksiMasukTerbesar.description || '-'} (${formatCurrency(transaksiMasukTerbesar.amount)})\n`;
+      }
+      if (transaksiKeluarTerbesar) {
+        rep += `🔻 *Transaksi Pengeluaran Terbesar:* ${transaksiKeluarTerbesar.description || '-'} (${formatCurrency(Math.abs(transaksiKeluarTerbesar.amount))})\n`;
+      }
+
+      // 📋 Pisahkan tampilan daftar
+      rep += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      rep += `📈 *Pemasukan:*\n`;
+      pemasukan.forEach(r => {
+        rep += `➕ ${formatCurrency(r.amount)} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+      });
+
+      rep += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
+      rep += `📉 *Pengeluaran:*\n`;
+      pengeluaran.forEach(r => {
+        rep += `➖ ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
       });
 
       return sock.sendMessage(from, { text: rep });
     }
 
-    // fallback ke laporan utama
+    // fallback ke bantuan
     await commands.help(sock, from);
     return;
   },
