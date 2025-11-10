@@ -26,6 +26,7 @@ const path = require('path');
 const axios = require('axios');
 const cron = require('node-cron');
 const OpenAI = require("openai");
+// const wishlist = require('./wishlist');
 const openai = new OpenAI({
   apiKey: process.env.GROQ_API_KEY,
   baseURL: "https://api.groq.com/openai/v1",
@@ -824,6 +825,63 @@ const commands = {
     else await sock.sendMessage(from, { text: `❌ Gagal update. Pastikan ID benar dan milik Anda.` });
   }
 };
+
+commands.wishlist = async (sock, from, args) => {
+  const subcmd = args[0];
+
+  if (!subcmd) {
+    return sock.sendMessage(from, {
+      text: `🛍️ *Wishlist Menu*\n\n` +
+        `🔹 Tambah item: *wishlist tambah keyboard logitech*\n` +
+        `🔹 Lihat daftar: *wishlist lihat*\n` +
+        `🔹 Cek harga sekarang: *wishlist cek*\n`
+    });
+  }
+
+  if (subcmd === 'tambah') {
+    const name = args.slice(1).join(' ');
+    if (!name) return sock.sendMessage(from, { text: '⚠️ Masukkan nama barang!' });
+    const item = wishlist.addItem(from, name);
+    return sock.sendMessage(from, { text: `✅ Ditambahkan ke wishlist: *${item.name}*` });
+  }
+
+  if (subcmd === 'lihat') {
+    const items = wishlist.getUserWishlist(from);
+    if (!items.length) return sock.sendMessage(from, { text: '📭 Wishlist kamu masih kosong.' });
+    let rep = '🛒 *Wishlist Kamu:*\n\n';
+    items.forEach((x, i) => {
+      rep += `${i + 1}. ${x.name} ${x.price ? `- ${x.price}` : ''}\n`;
+    });
+    return sock.sendMessage(from, { text: rep });
+  }
+
+  if (subcmd === 'cek') {
+    await sock.sendMessage(from, { text: '🔍 Mengecek harga semua barang kamu...' });
+    const changed = await wishlist.updatePrices();
+    if (!changed.length)
+      return sock.sendMessage(from, { text: '💤 Belum ada perubahan harga.' });
+
+    const formatRupiah = (num) => {
+      if (!num) return '-';
+      return 'Rp' + num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    };
+
+    let rep = '📉 *Barang yang turun harga!*\n\n';
+    changed.forEach(c => {
+      rep += `🔻 ${c.name}\nDulu: ${formatRupiah(c.price)}\nSekarang: ${formatRupiah(c.newPrice)}\n🔗 ${c.url}\n\n`;
+    });
+    return sock.sendMessage(from, { text: rep });
+  }
+};
+
+cron.schedule('0 * * * *', async () => {  // tiap jam
+  const changed = await wishlist.updatePrices();
+  for (let c of changed) {
+    await sock.sendMessage(c.jid, {
+      text: `🔔 *Barang kamu turun harga!*\n\n${c.name}\n💰 Sekarang: ${c.newPrice}\n🔗 ${c.url}`
+    });
+  }
+});
 
 async function saveVaultVideoMessage(sock, msg, userId, title) {
   const media = msg.message.videoMessage;
