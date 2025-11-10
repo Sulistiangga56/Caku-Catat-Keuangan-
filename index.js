@@ -445,21 +445,54 @@ const commands = {
     await sock.sendMessage(from, { text: `💰 Saldo saat ini: ${formatCurrency(saldo)}` });
   },
 
-  // kategori: list unique categories
+  // kategori: list unique categories + saldo per kategori
+  // kategori: list unique categories + saldo per kategori (tampilan rapi)
   kategori: async (sock, from) => {
     const rows = await getTransactions(from, { limit: 1000 });
-    const categories = Array.from(
-      new Set(
-        rows
-          .map(r => (r.category || '').trim())
-          .filter(c => c.length > 0)
-      )
-    );
+
+    if (!rows.length) {
+      await sock.sendMessage(from, { text: 'Belum ada transaksi yang tercatat.' });
+      return;
+    }
+
+    // 🔢 Kelompokkan transaksi per kategori
+    const kategoriMap = {};
+    rows.forEach(r => {
+      const kategori = (r.category || 'Lainnya').trim();
+      if (!kategoriMap[kategori]) {
+        kategoriMap[kategori] = { masuk: 0, keluar: 0 };
+      }
+      if (r.amount > 0) kategoriMap[kategori].masuk += r.amount;
+      else kategoriMap[kategori].keluar += Math.abs(r.amount);
+    });
+
+    const categories = Object.keys(kategoriMap);
     if (!categories.length) {
       await sock.sendMessage(from, { text: 'Belum ada kategori yang tercatat.' });
       return;
     }
-    await sock.sendMessage(from, { text: `📊 Daftar Kategori Tercatat:\n\n${categories.map((c, i) => `${i + 1}. ${c}`).join('\n')}` });
+
+    // 💰 Hitung saldo akhir per kategori
+    const data = categories.map((c) => {
+      const { masuk, keluar } = kategoriMap[c];
+      const saldo = masuk - keluar;
+      return { kategori: c, saldo };
+    });
+
+    // Urutkan dari saldo terbesar ke terkecil (opsional)
+    data.sort((a, b) => b.saldo - a.saldo);
+
+    // 📊 Format teks agar rapi rata kanan
+    const longestName = Math.max(...data.map(d => d.kategori.length));
+    const report = data.map((d, i) => {
+      const paddedName = d.kategori.padEnd(longestName, ' ');
+      return `${(i + 1).toString().padStart(2, ' ')}. ${paddedName}  |  ${formatCurrency(d.saldo)}`;
+    }).join('\n');
+
+    // 📤 Kirim pesan
+    await sock.sendMessage(from, {
+      text: `📊 *Daftar Kategori & Saldo Akhir*\n\n\`\`\`\n${report}\n\`\`\``
+    });
   },
 
   // totals by sign
