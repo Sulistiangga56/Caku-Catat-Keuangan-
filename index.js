@@ -345,13 +345,13 @@ const commands = {
       rep += `\n━━━━━━━━━━━━━━━━━━━━━━━\n📈 *Pemasukan:*\n`;
       if (pemasukan.length === 0) rep += `— Tidak ada pemasukan.\n`;
       pemasukan.forEach(r => {
-        rep += `➕ ${formatCurrency(r.amount)} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+        rep += `➕ ${formatCurrency(r.amount)} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')} | ID:${r.id}\n`;
       });
 
       rep += `━━━━━━━━━━━━━━━━━━━━━━━\n📉 *Pengeluaran:*\n`;
       if (pengeluaran.length === 0) rep += `— Tidak ada pengeluaran.\n`;
       pengeluaran.forEach(r => {
-        rep += `➖ ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+        rep += `➖ ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')} | ID:${r.id}\n`;
       });
 
       return rep;
@@ -639,14 +639,16 @@ const commands = {
       rep += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
       rep += `📈 *Pemasukan:*\n`;
       pemasukan.forEach(r => {
-        rep += `➕ ${formatCurrency(r.amount)} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+        rep += `➕ ${formatCurrency(r.amount)} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')} | ID:${r.id}\n`;
       });
+
 
       rep += `━━━━━━━━━━━━━━━━━━━━━━━\n`;
       rep += `📉 *Pengeluaran:*\n`;
       pengeluaran.forEach(r => {
-        rep += `➖ ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')}\n`;
+        rep += `➖ ${formatCurrency(Math.abs(r.amount))} | ${r.description} | ${r.category || '-'} | ${moment(r.created_at).format('DD/MM HH:mm')} | ID:${r.id}\n`;
       });
+
 
       return sock.sendMessage(from, { text: rep });
     }
